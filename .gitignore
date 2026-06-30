@@ -35,8 +35,15 @@ yarn-error.log*
 
 # vercel
 .vercel
-
-
+node_modules/
+.next/
+db/*.db
+public/uploads/
+.env
+.zscripts
+agent-ctx
+tool-results
+worklog.md
 # typescript
 *.tsbuildinfo
 next-env.d.ts

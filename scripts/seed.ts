@@ -1,17 +1,8 @@
-/**
- * Seed script — pulls the product catalog from DummyJSON (the free public
- * API data source) and persists it to the local MongoDB database. Run with:
- *
- *   npx tsx scripts/seed.ts
- *
- * Idempotent: re-running skips existing rows. After seeding, the entire
- * app reads/writes against the local DB.
- */
+
+import "dotenv/config";
 import { connectDB, ProductModel, CategoryModel, CouponModel } from "../src/lib/models";
 
-// Ensure the URI is clean (strip quotes if the .env loader kept them).
-const rawUri = process.env.DATABASE_URL ?? "";
-process.env.DATABASE_URL = rawUri.replace(/^["']|["']$/g, "");
+const rawUri = process.env.DATABASE_URL
 
 const DUMMY_BASE = "https://dummyjson.com";
 

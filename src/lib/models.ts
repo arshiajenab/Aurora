@@ -15,8 +15,6 @@ import mongoose, { Schema, type InferSchemaType, type Model } from "mongoose";
 export async function connectDB(): Promise<typeof mongoose> {
   let uri = process.env.DATABASE_URL;
   if (!uri) throw new Error("DATABASE_URL is not set");
-  // Strip surrounding quotes if present (some .env loaders keep them).
-  uri = uri.replace(/^["']|["']$/g, "");
   if (mongoose.connection.readyState >= 1) return mongoose;
   return mongoose.connect(uri);
 }
