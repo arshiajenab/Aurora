@@ -1,23 +1,29 @@
-:81 {
-	@transform_port_query {
-		query XTransformPort=*
-	}
+aurora-nu-orcin.vercel.app {
 
-	handle @transform_port_query {
-		reverse_proxy localhost:{query.XTransformPort} {
-			header_up Host {host}
-			header_up X-Forwarded-For {remote_host}
-			header_up X-Forwarded-Proto {scheme}
-			header_up X-Real-IP {remote_host}
-		}
-	}
+    # optional but good for forwarded headers consistency
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+    }
 
-	handle {
-		reverse_proxy localhost:3000 {
-			header_up Host {host}
-			header_up X-Forwarded-For {remote_host}
-			header_up X-Forwarded-Proto {scheme}
-			header_up X-Real-IP {remote_host}
-		}
-	}
+    @transform_port_query {
+        query XTransformPort=*
+    }
+
+    handle @transform_port_query {
+        reverse_proxy localhost:{query.XTransformPort} {
+            header_up Host {host}
+            header_up X-Forwarded-For {remote_host}
+            header_up X-Forwarded-Proto https
+            header_up X-Real-IP {remote_host}
+        }
+    }
+
+    handle {
+        reverse_proxy localhost:3000 {
+            header_up Host {host}
+            header_up X-Forwarded-For {remote_host}
+            header_up X-Forwarded-Proto https
+            header_up X-Real-IP {remote_host}
+        }
+    }
 }
