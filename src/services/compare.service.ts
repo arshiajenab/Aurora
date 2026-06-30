@@ -51,12 +51,11 @@ export const compareService = {
   },
 
   async replace(userId: string, productIds: number[]): Promise<void> {
+    // Sequential ops (avoids $transaction — needs replica set on standalone MongoDB).
     const trimmed = productIds.slice(0, MAX_COMPARE);
-    await db.$transaction([
-      db.compareItem.deleteMany({ where: { userId } }),
-      ...trimmed.map((productId) =>
-        db.compareItem.create({ data: { userId, productId } }),
-      ),
-    ]);
+    await db.compareItem.deleteMany({ where: { userId } });
+    for (const productId of trimmed) {
+      await db.compareItem.create({ data: { userId, productId } });
+    }
   },
 };

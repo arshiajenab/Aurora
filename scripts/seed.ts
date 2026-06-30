@@ -1,12 +1,12 @@
 /**
  * Seed script — pulls the product catalog from DummyJSON (the free public
- * API data source) and persists it to the local database. Run with:
+ * API data source) and persists it to the local MongoDB database. Run with:
  *
- *   bun run scripts/seed.ts
+ *   npx tsx scripts/seed.ts
  *
- * Idempotent: re-running upserts and skips existing categories/products.
- * This is the ONLY place DummyJSON is referenced for catalog data; after
- * seeding, the entire app reads/writes against the local DB.
+ * Idempotent: re-running skips existing rows (we use findFirst + create
+ * instead of upsert, because upsert requires a replica set on standalone
+ * MongoDB). After seeding, the entire app reads/writes against the local DB.
  */
 import { db } from "../src/lib/db";
 
@@ -31,7 +31,6 @@ interface DummyProduct {
   availabilityStatus: string;
   returnPolicy: string;
   minimumOrderQuantity: number;
-  meta: { createdAt: string; updatedAt: string; barcode: string; qrCode: string };
   thumbnail: string;
   images: string[];
 }
@@ -39,7 +38,11 @@ interface DummyProduct {
 interface DummyCategory {
   slug: string;
   name: string;
-  url: string;
+}
+
+interface DummyProductsResponse {
+  products: DummyProduct[];
+  total: number;
 }
 
 async function fetchJson<T>(url: string): Promise<T> {
@@ -60,11 +63,16 @@ async function seed() {
   console.log("→ Seeding categories…");
   const cats = await fetchJson<DummyCategory[]>(`${DUMMY_BASE}/products/categories`);
   for (const cat of cats) {
-    await db.category.upsert({
-      where: { slug: cat.slug },
-      update: { name: cat.name },
-      create: { slug: cat.slug, name: cat.name },
-    });
+    // Avoid upsert() — it requires a replica set on standalone MongoDB.
+    const found = await db.category.findUnique({ where: { slug: cat.slug } });
+    if (found) {
+      await db.category.update({
+        where: { slug: cat.slug },
+        data: { name: cat.name },
+      });
+    } else {
+      await db.category.create({ data: { slug: cat.slug, name: cat.name } });
+    }
   }
   console.log(`  ✓ ${cats.length} categories`);
 
@@ -74,67 +82,45 @@ async function seed() {
   const limit = 100;
   // DummyJSON reports ~194 products; loop until exhausted.
   while (true) {
-    const batch = await fetchJson<{ products: DummyProduct[]; total: number }>(
+    const batch = await fetchJson<DummyProductsResponse>(
       `${DUMMY_BASE}/products?limit=${limit}&skip=${skip}`,
     );
     if (batch.products.length === 0) break;
 
     for (const p of batch.products) {
       const price = Number(p.price.toFixed(2));
-      await db.product.upsert({
-        where: { id: p.id },
-        update: {
-          title: p.title,
-          description: p.description,
-          category: p.category,
-          price,
-          discountPercentage: p.discountPercentage ?? 0,
-          rating: p.rating,
-          stock: p.stock,
-          tags: p.tags ?? [],
-          brand: p.brand ?? null,
-          sku: p.sku,
-          weight: p.weight,
-          width: p.dimensions?.width ?? 0,
-          height: p.dimensions?.height ?? 0,
-          depth: p.dimensions?.depth ?? 0,
-          warrantyInformation: p.warrantyInformation,
-          shippingInformation: p.shippingInformation,
-          availabilityStatus: p.availabilityStatus,
-          returnPolicy: p.returnPolicy,
-          minimumOrderQuantity: p.minimumOrderQuantity,
-          thumbnail: p.thumbnail,
-          images: p.images ?? [p.thumbnail],
-          featured: p.rating >= 4.6,
-          status: p.stock > 0 ? "active" : "inactive",
-        },
-        create: {
-          id: p.id,
-          title: p.title,
-          description: p.description,
-          category: p.category,
-          price,
-          discountPercentage: p.discountPercentage ?? 0,
-          rating: p.rating,
-          stock: p.stock,
-          tags: p.tags ?? [],
-          brand: p.brand ?? null,
-          sku: p.sku,
-          weight: p.weight,
-          width: p.dimensions?.width ?? 0,
-          height: p.dimensions?.height ?? 0,
-          depth: p.dimensions?.depth ?? 0,
-          warrantyInformation: p.warrantyInformation,
-          shippingInformation: p.shippingInformation,
-          availabilityStatus: p.availabilityStatus,
-          returnPolicy: p.returnPolicy,
-          minimumOrderQuantity: p.minimumOrderQuantity,
-          thumbnail: p.thumbnail,
-          images: p.images ?? [p.thumbnail],
-          featured: p.rating >= 4.6,
-          status: p.stock > 0 ? "active" : "inactive",
-        },
-      });
+      const data = {
+        title: p.title,
+        description: p.description,
+        category: p.category,
+        price,
+        discountPercentage: p.discountPercentage ?? 0,
+        rating: p.rating,
+        stock: p.stock,
+        tags: p.tags ?? [],
+        brand: p.brand ?? null,
+        sku: p.sku,
+        weight: p.weight,
+        width: p.dimensions?.width ?? 0,
+        height: p.dimensions?.height ?? 0,
+        depth: p.dimensions?.depth ?? 0,
+        warrantyInformation: p.warrantyInformation,
+        shippingInformation: p.shippingInformation,
+        availabilityStatus: p.availabilityStatus,
+        returnPolicy: p.returnPolicy,
+        minimumOrderQuantity: p.minimumOrderQuantity,
+        thumbnail: p.thumbnail,
+        images: p.images ?? [p.thumbnail],
+        featured: p.rating >= 4.6,
+        status: p.stock > 0 ? "active" : "inactive",
+      };
+      // findFirst + update/create instead of upsert (no replica set needed).
+      const found = await db.product.findUnique({ where: { id: p.id } });
+      if (found) {
+        await db.product.update({ where: { id: p.id }, data });
+      } else {
+        await db.product.create({ data: { id: p.id, ...data } });
+      }
     }
     total += batch.products.length;
     skip += limit;
@@ -149,11 +135,10 @@ async function seed() {
     { code: "FREESHIP", type: "fixed", value: 12, minSubtotal: 0 },
   ];
   for (const c of coupons) {
-    await db.coupon.upsert({
-      where: { code: c.code },
-      update: {},
-      create: { ...c, active: true },
-    });
+    const found = await db.coupon.findUnique({ where: { code: c.code } });
+    if (!found) {
+      await db.coupon.create({ data: { ...c, active: true } });
+    }
   }
   console.log(`  ✓ ${coupons.length} coupons`);
 

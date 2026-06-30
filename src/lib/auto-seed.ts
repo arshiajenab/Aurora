@@ -77,19 +77,24 @@ async function doSeed(): Promise<void> {
       "🌱 Database is empty — auto-seeding catalog from DummyJSON…",
     );
 
-    // 1. Categories
+    // 1. Categories — findUnique + update/create (avoids upsert, which
+    //    requires a replica set on standalone MongoDB).
     const cats = await fetchJson<DummyCategory[]>(
       `${DUMMY_BASE}/products/categories`,
     );
     for (const cat of cats) {
-      await db.category.upsert({
-        where: { slug: cat.slug },
-        update: { name: cat.name },
-        create: { slug: cat.slug, name: cat.name },
-      });
+      const found = await db.category.findUnique({ where: { slug: cat.slug } });
+      if (found) {
+        await db.category.update({
+          where: { slug: cat.slug },
+          data: { name: cat.name },
+        });
+      } else {
+        await db.category.create({ data: { slug: cat.slug, name: cat.name } });
+      }
     }
 
-    // 2. Products (paginated)
+    // 2. Products (paginated) — findUnique + create (same reason as above).
     let total = 0;
     let skip = 0;
     const limit = 100;
@@ -101,54 +106,52 @@ async function doSeed(): Promise<void> {
 
       for (const p of batch.products) {
         const price = Number(p.price.toFixed(2));
-        await db.product.upsert({
-          where: { id: p.id },
-          update: {},
-          create: {
-            id: p.id,
-            title: p.title,
-            description: p.description,
-            category: p.category,
-            price,
-            discountPercentage: p.discountPercentage ?? 0,
-            rating: p.rating,
-            stock: p.stock,
-            tags: p.tags ?? [],
-            brand: p.brand ?? null,
-            sku: p.sku,
-            weight: p.weight,
-            width: p.dimensions?.width ?? 0,
-            height: p.dimensions?.height ?? 0,
-            depth: p.dimensions?.depth ?? 0,
-            warrantyInformation: p.warrantyInformation,
-            shippingInformation: p.shippingInformation,
-            availabilityStatus: p.availabilityStatus,
-            returnPolicy: p.returnPolicy,
-            minimumOrderQuantity: p.minimumOrderQuantity,
-            thumbnail: p.thumbnail,
-            images: p.images ?? [p.thumbnail],
-            featured: p.rating >= 4.6,
-            status: p.stock > 0 ? "active" : "inactive",
-          },
-        });
+        const data = {
+          title: p.title,
+          description: p.description,
+          category: p.category,
+          price,
+          discountPercentage: p.discountPercentage ?? 0,
+          rating: p.rating,
+          stock: p.stock,
+          tags: p.tags ?? [],
+          brand: p.brand ?? null,
+          sku: p.sku,
+          weight: p.weight,
+          width: p.dimensions?.width ?? 0,
+          height: p.dimensions?.height ?? 0,
+          depth: p.dimensions?.depth ?? 0,
+          warrantyInformation: p.warrantyInformation,
+          shippingInformation: p.shippingInformation,
+          availabilityStatus: p.availabilityStatus,
+          returnPolicy: p.returnPolicy,
+          minimumOrderQuantity: p.minimumOrderQuantity,
+          thumbnail: p.thumbnail,
+          images: p.images ?? [p.thumbnail],
+          featured: p.rating >= 4.6,
+          status: p.stock > 0 ? "active" : "inactive",
+        };
+        const found = await db.product.findUnique({ where: { id: p.id } });
+        if (!found) {
+          await db.product.create({ data: { id: p.id, ...data } });
+        }
       }
       total += batch.products.length;
       skip += limit;
       if (skip >= batch.total) break;
     }
 
-    // 3. Demo coupons
+    // 3. Demo coupons — findUnique + create (same pattern).
     const coupons = [
       { code: "WELCOME10", type: "percent", value: 10, minSubtotal: 0 },
       { code: "AURORA20", type: "percent", value: 20, minSubtotal: 200 },
       { code: "FREESHIP", type: "fixed", value: 12, minSubtotal: 0 },
     ];
     for (const c of coupons) {
-      await db.coupon.upsert({
-        where: { code: c.code },
-        update: {},
-        create: { ...c, active: true },
-      });
+      const found = await db.coupon.findUnique({ where: { code: c.code } });
+      if (!found) {
+        await db.coupon.create({ data: { ...c, active: true } });
+      }
     }
 
     console.log(`✓ Auto-seeded ${total} products, ${cats.length} categories, ${coupons.length} coupons.`);

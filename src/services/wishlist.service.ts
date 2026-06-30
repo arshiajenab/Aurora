@@ -43,13 +43,12 @@ export const wishlistService = {
     await db.wishlistItem.deleteMany({ where: { userId } });
   },
 
-  /** Replace the stored wishlist with the given ids (used on login sync). */
+  /** Replace the stored wishlist with the given ids (used on login sync).
+   *  Sequential ops (avoids $transaction — needs replica set on standalone MongoDB). */
   async replace(userId: string, productIds: number[]): Promise<void> {
-    await db.$transaction([
-      db.wishlistItem.deleteMany({ where: { userId } }),
-      ...productIds.map((productId) =>
-        db.wishlistItem.create({ data: { userId, productId } }),
-      ),
-    ]);
+    await db.wishlistItem.deleteMany({ where: { userId } });
+    for (const productId of productIds) {
+      await db.wishlistItem.create({ data: { userId, productId } });
+    }
   },
 };

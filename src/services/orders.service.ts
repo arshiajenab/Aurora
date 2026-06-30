@@ -127,59 +127,57 @@ export const ordersService = {
     });
     const number = (lastNumber._max.number ?? 1000) + 1;
 
-    // Transaction: create order + items + decrement stock + bump coupon usage.
-    const order = await db.$transaction(async (tx) => {
-      const created = await tx.order.create({
+    // Create order + items + decrement stock sequentially (avoids
+    // $transaction, which requires a replica set on standalone MongoDB).
+    const created = await db.order.create({
+      data: {
+        number,
+        userId: input.userId,
+        status: "pending",
+        subtotal,
+        discount,
+        shipping: shippingCost,
+        tax,
+        total,
+        shippingMethod: input.shippingMethod,
+        paymentMethod: input.paymentMethod,
+        couponCode: input.couponCode?.toUpperCase() ?? null,
+        shippingAddress: input.shippingAddress as never,
+        billingAddress: input.billingAddress as never,
+        customerEmail: input.customer.email,
+        customerName: input.customer.fullName,
+      },
+    });
+    await db.orderItem.createMany({
+      data: orderItems.map((i) => ({
+        orderId: created.id,
+        productId: i.productId,
+        title: i.title,
+        price: i.price,
+        quantity: i.quantity,
+        thumbnail: i.thumbnail,
+      })),
+    });
+    for (const item of orderItems) {
+      await db.product.update({
+        where: { id: item.productId },
         data: {
-          number,
-          userId: input.userId,
-          status: "pending",
-          subtotal,
-          discount,
-          shipping: shippingCost,
-          tax,
-          total,
-          shippingMethod: input.shippingMethod,
-          paymentMethod: input.paymentMethod,
-          couponCode: input.couponCode?.toUpperCase() ?? null,
-          shippingAddress: input.shippingAddress as never,
-          billingAddress: input.billingAddress as never,
-          customerEmail: input.customer.email,
-          customerName: input.customer.fullName,
+          stock: { decrement: item.quantity },
+          availabilityStatus:
+            item.stockBefore - item.quantity <= 0
+              ? "Out of Stock"
+              : "In Stock",
         },
       });
-      await tx.orderItem.createMany({
-        data: orderItems.map((i) => ({
-          orderId: created.id,
-          productId: i.productId,
-          title: i.title,
-          price: i.price,
-          quantity: i.quantity,
-          thumbnail: i.thumbnail,
-        })),
+    }
+    if (couponId) {
+      await db.coupon.update({
+        where: { id: couponId },
+        data: { usedCount: { increment: 1 } },
       });
-      for (const item of orderItems) {
-        await tx.product.update({
-          where: { id: item.productId },
-          data: {
-            stock: { decrement: item.quantity },
-            availabilityStatus:
-              item.stockBefore - item.quantity <= 0
-                ? "Out of Stock"
-                : "In Stock",
-          },
-        });
-      }
-      if (couponId) {
-        await tx.coupon.update({
-          where: { id: couponId },
-          data: { usedCount: { increment: 1 } },
-        });
-      }
-      return created;
-    });
+    }
 
-    return this.getById(order.id, input.userId);
+    return this.getById(created.id, input.userId);
   },
 
   async getById(id: string, userId?: string) {
@@ -268,16 +266,15 @@ export const ordersService = {
       throw new OrdersServiceError("Order not found", "not-found", 404);
     }
     // Restock on cancel if previously in a fulfilled-able state.
+    // Sequential updates (avoids $transaction — needs replica set).
     if (status === "cancelled" && order.status !== "cancelled") {
       const items = await db.orderItem.findMany({ where: { orderId: id } });
-      await db.$transaction(
-        items.map((i) =>
-          db.product.update({
-            where: { id: i.productId },
-            data: { stock: { increment: i.quantity } },
-          }),
-        ),
-      );
+      for (const i of items) {
+        await db.product.update({
+          where: { id: i.productId },
+          data: { stock: { increment: i.quantity } },
+        });
+      }
     }
     const updated = await db.order.update({
       where: { id },
