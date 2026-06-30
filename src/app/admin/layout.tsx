@@ -1,3 +1,4 @@
+export const dynamic = "force-dynamic";
 import type { Metadata } from "next";
 import * as React from "react";
 import { AdminShell } from "@/features/admin/components/admin-shell";

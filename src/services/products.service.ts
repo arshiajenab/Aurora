@@ -1,12 +1,10 @@
 /**
- * Products service — now DB-backed (Prisma + SQLite), seeded from DummyJSON.
+ * Products service — DB-backed (Prisma + MongoDB), seeded from DummyJSON.
  *
  * The PUBLIC interface is intentionally identical to the previous
  * DummyJSON-backed version, so every storefront page keeps working
- * unchanged. The only difference: data now persists locally and supports
- * full CRUD (see the admin methods below).
- *
- * JSON-encoded fields (tags, images) are normalised to arrays on read.
+ * unchanged. The only difference: data now persists in MongoDB and
+ * supports full CRUD (see the admin methods below).
  */
 import { db } from "@/lib/db";
 import { PRODUCTS_PER_PAGE } from "@/lib/constants";
@@ -23,8 +21,8 @@ import type {
 type ProductRow = Awaited<ReturnType<typeof db.product.findFirst>> & object;
 
 function mapProduct(row: ProductRow): Product {
-  const tags: string[] = safeParseArray(row.tags);
-  const images: string[] = safeParseArray(row.images);
+  const tags: string[] = Array.isArray(row.tags) ? row.tags : [];
+  const images: string[] = Array.isArray(row.images) ? row.images : [];
   const discountPercentage = row.discountPercentage ?? 0;
   const priceBeforeDiscount =
     discountPercentage > 0
@@ -66,15 +64,6 @@ function mapProduct(row: ProductRow): Product {
     featured: row.featured,
     status: row.status as "active" | "inactive",
   };
-}
-
-function safeParseArray(raw: string): string[] {
-  try {
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed.map(String) : [];
-  } catch {
-    return [];
-  }
 }
 
 function translateSort(sortBy?: SortOption): {
@@ -302,19 +291,26 @@ export const productService = {
     height?: number;
     depth?: number;
   }): Promise<Product> {
+    // MongoDB doesn't support @default(autoincrement()), so we compute the
+    // next numeric id ourselves. (Race condition is acceptable for a demo;
+    // a real app would use a counter collection or transaction.)
+    const last = await db.product.findFirst({ orderBy: { id: "desc" } });
+    const nextId = (last?.id ?? 0) + 1;
+
     const row = await db.product.create({
       data: {
+        id: nextId,
         title: input.title,
         description: input.description,
         category: input.category,
         price: input.price,
         discountPercentage: input.discountPercentage,
         stock: input.stock,
-        tags: JSON.stringify(input.tags),
+        tags: input.tags,
         brand: input.brand ?? null,
         sku: input.sku ?? null,
         thumbnail: input.thumbnail,
-        images: JSON.stringify(input.images),
+        images: input.images,
         featured: input.featured,
         status: input.status,
         warrantyInformation: input.warrantyInformation ?? "",
@@ -355,8 +351,6 @@ export const productService = {
     }>,
   ): Promise<Product> {
     const data: Record<string, unknown> = { ...input };
-    if (input.tags) data.tags = JSON.stringify(input.tags);
-    if (input.images) data.images = JSON.stringify(input.images);
     if (input.stock !== undefined) {
       data.availabilityStatus = input.stock > 0 ? "In Stock" : "Out of Stock";
     }

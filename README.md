@@ -10,7 +10,7 @@ I wanted to build something that felt like a real product — not a tutorial. Th
 
 - **Next.js 16** (App Router, Server Components, Route Handlers)
 - **TypeScript** (strict mode)
-- **Prisma + SQLite** (dev) / PostgreSQL (prod)
+- **Prisma + MongoDB** (local + Atlas for prod)
 - **Tailwind CSS 4 + shadcn/ui**
 - **Zustand** (cart/wishlist/compare state, persisted)
 - **TanStack Query** (server state)

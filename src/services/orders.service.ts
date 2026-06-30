@@ -46,7 +46,7 @@ const SHIPPING_METHODS = {
 
 export const ordersService = {
   async createOrder(input: CreateOrderInput) {
-    // Resolve live prices + decrement stock atomically-ish (SQLite).
+    // Resolve live prices + decrement stock atomically (MongoDB).
     const resolved = await Promise.all(
       input.items.map(async (line) => {
         const product = await db.product.findUnique({ where: { id: line.id } });
@@ -142,8 +142,8 @@ export const ordersService = {
           shippingMethod: input.shippingMethod,
           paymentMethod: input.paymentMethod,
           couponCode: input.couponCode?.toUpperCase() ?? null,
-          shippingAddress: JSON.stringify(input.shippingAddress),
-          billingAddress: JSON.stringify(input.billingAddress),
+          shippingAddress: input.shippingAddress as never,
+          billingAddress: input.billingAddress as never,
           customerEmail: input.customer.email,
           customerName: input.customer.fullName,
         },
@@ -310,8 +310,8 @@ function serializeOrder(order: {
   shippingMethod: string;
   paymentMethod: string;
   couponCode: string | null;
-  shippingAddress: string;
-  billingAddress: string;
+  shippingAddress: unknown;
+  billingAddress: unknown;
   customerEmail: string;
   customerName: string;
   createdAt: Date;
@@ -343,8 +343,8 @@ function serializeOrder(order: {
     shippingMethod: order.shippingMethod,
     paymentMethod: order.paymentMethod,
     couponCode: order.couponCode,
-    shippingAddress: safeParseJson(order.shippingAddress),
-    billingAddress: safeParseJson(order.billingAddress),
+    shippingAddress: (order.shippingAddress as Record<string, unknown>) ?? {},
+    billingAddress: (order.billingAddress as Record<string, unknown>) ?? {},
     customerEmail: order.customerEmail,
     customerName: order.customerName,
     createdAt: order.createdAt.toISOString(),
@@ -354,14 +354,6 @@ function serializeOrder(order: {
       price: Number(i.price.toFixed(2)),
     })),
   };
-}
-
-function safeParseJson(raw: string): Record<string, unknown> {
-  try {
-    return JSON.parse(raw);
-  } catch {
-    return {};
-  }
 }
 
 export { SHIPPING_METHODS };

@@ -2,6 +2,9 @@ import type { MetadataRoute } from "next";
 import { SITE } from "@/lib/constants";
 import { productService } from "@/services/products.service";
 
+// Sitemap fetches from the DB — render on-demand, not at build time.
+export const dynamic = "force-dynamic";
+
 /**
  * Dynamic sitemap — static marketing routes + every product detail page.
  * Generated at request time; cached for 1h via the route's default cache.

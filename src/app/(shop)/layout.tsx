@@ -4,6 +4,10 @@ import { SiteFooter } from "@/shared/components/site-footer";
 import { CompareBar } from "@/features/compare/components/compare-bar";
 import { CompareSync } from "@/features/compare/components/compare-sync";
 
+// All storefront pages fetch from the database, so they must be rendered
+// on-demand (not prerendered at build time, when no DB is available).
+export const dynamic = "force-dynamic";
+
 /**
  * Shop layout — shared chrome (header + footer) for every storefront page.
  * The root layout already provides the `min-h-screen flex flex-col` wrapper,
