@@ -40,8 +40,12 @@ export function ImageUploader({
       const res = await fetch("/api/upload?kind=products", {
         method: "POST",
         body: form,
+        credentials: "same-origin",
       });
-      if (!res.ok) throw new Error("Upload failed");
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error ?? `Upload failed (${res.status})`);
+      }
       const data = (await res.json()) as { urls: string[] };
       if (mode === "single") {
         onChange(data.urls[0] ?? "");
@@ -128,10 +132,11 @@ export function ImageUploader({
         />
       </div>
 
-      {/* Manual URL input for thumbnail */}
+      {/* Manual URL input for thumbnail — text (not url) so relative paths
+          like /uploads/products/xxx.png aren't rejected by native validation */}
       {mode === "single" && (
         <input
-          type="url"
+          type="text"
           value={typeof value === "string" ? value : ""}
           onChange={(e) => onChange(e.target.value)}
           placeholder="…or paste an image URL"

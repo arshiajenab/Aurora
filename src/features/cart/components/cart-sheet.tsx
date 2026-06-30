@@ -14,7 +14,6 @@ import {
 } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   useCartStore,
   selectCartCount,
@@ -53,7 +52,7 @@ export function CartSheet({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="flex w-full flex-col gap-0 border-l p-0 sm:max-w-md">
+      <SheetContent className="flex h-screen w-full flex-col gap-0 border-l p-0 sm:max-w-md">
         <SheetHeader className="flex flex-row items-center justify-between gap-2 border-b px-6 py-5">
           <div className="flex items-center gap-2">
             <ShoppingBag className="h-4 w-4" />
@@ -117,7 +116,7 @@ export function CartSheet({
               </div>
             </div>
 
-            <ScrollArea className="flex-1">
+            <div className="scrollbar-thin min-h-0 flex-1 overflow-y-auto">
               <ul className="divide-y">
                 <AnimatePresence initial={false}>
                   {items.map((item) => (
@@ -204,9 +203,9 @@ export function CartSheet({
                   ))}
                 </AnimatePresence>
               </ul>
-            </ScrollArea>
+            </div>
 
-            <div className="border-t px-6 py-5">
+            <div className="shrink-0 border-t px-6 py-5">
               <div className="flex items-center justify-between text-sm">
                 <span className="text-muted-foreground">Subtotal</span>
                 <span className="font-semibold tabular-nums">

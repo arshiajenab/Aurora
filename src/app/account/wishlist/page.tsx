@@ -40,7 +40,11 @@ export default function AccountWishlistPage() {
   const [movingId, setMovingId] = React.useState<number | null>(null);
 
   // Resolve full product data for each wishlist id.
+  // Use a joined-string key so the effect only re-runs when the actual ids
+  // change — not on every render (a new array reference would cause an
+  // infinite refetch loop that makes links unclickable).
   const ids = items.map((i) => i.id);
+  const idsKey = ids.join(",");
   React.useEffect(() => {
     if (!mounted || ids.length === 0) {
       setLoading(false);
@@ -68,7 +72,7 @@ export default function AccountWishlistPage() {
     return () => {
       cancelled = true;
     };
-  }, [mounted, ids]);
+  }, [mounted, idsKey]);
 
   const handleMoveToCart = async (productId: number) => {
     const product = products[productId];
