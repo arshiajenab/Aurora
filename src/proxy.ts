@@ -1,13 +1,16 @@
 /**
- * Middleware — lightweight route protection.
+ * Proxy (formerly "middleware" in Next.js < 16) — lightweight route protection.
  *
  * Strategy:
  *  - `/checkout` and `/account/*` require an access token. If absent/expired
- *    we DON'T attempt a DB-backed refresh here (middleware runs on the edge
- *    and should stay fast + stateless). Instead we redirect to /signin with
- *    a callback URL; the refresh flow runs in the Route Handler layer.
+ *    we DON'T attempt a DB-backed refresh here (proxy runs on the edge and
+ *    should stay fast + stateless). Instead we redirect to /signin with a
+ *    callback URL; the refresh flow runs in the Route Handler layer.
  *  - `/admin/*` is intentionally open (per product spec).
  *  - Everything else is public.
+ *
+ * Note: Next.js 16 renamed the `middleware.ts` convention to `proxy.ts`.
+ * The exported function name `proxy` (was `middleware`) is the new convention.
  */
 import { NextResponse, type NextRequest } from "next/server";
 import { verifyAccessToken } from "@/lib/jwt";
@@ -15,7 +18,7 @@ import { ACCESS_COOKIE } from "@/lib/auth-constants";
 
 const PROTECTED_PREFIXES = ["/checkout", "/account"];
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   const isProtected = PROTECTED_PREFIXES.some(
