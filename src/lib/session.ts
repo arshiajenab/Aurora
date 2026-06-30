@@ -1,10 +1,11 @@
 /**
  * Session resolution — reads the access-token cookie, verifies it, and
  * hydrates the SessionUser. Used by protected Route Handlers and Server
- * Components via `getSession()` / `requireSession()`.
+ * Components via `getSession()` / `requireSession()` (Mongoose).
  */
 import { cookies } from "next/headers";
 import { db } from "@/lib/db";
+import { connectDB } from "@/lib/models";
 import {
   signAccessToken,
   verifyAccessToken,
@@ -17,18 +18,25 @@ import {
   type SessionUser,
 } from "@/lib/jwt";
 import { ACCESS_COOKIE, REFRESH_COOKIE } from "@/lib/auth-constants";
+import mongoose from "mongoose";
 
 export { ACCESS_COOKIE, REFRESH_COOKIE };
 
-function toSessionUser(user: {
-  id: string;
+async function ensureConn() {
+  if (mongoose.connection.readyState < 1) await connectDB();
+}
+
+interface UserLean {
+  _id: string;
   email: string;
   name: string | null;
   role: string;
   avatar: string | null;
-}): SessionUser {
+}
+
+function toSessionUser(user: UserLean): SessionUser {
   return {
-    id: user.id,
+    id: String(user._id),
     email: user.email,
     name: user.name,
     role: user.role,
@@ -38,16 +46,14 @@ function toSessionUser(user: {
 
 /** Read + verify the access token from cookies. Does NOT refresh. */
 export async function getSession(): Promise<SessionUser | null> {
+  await ensureConn();
   const store = await cookies();
   const token = store.get(ACCESS_COOKIE)?.value;
   if (!token) return null;
   const payload = await verifyAccessToken(token);
   if (!payload) return null;
 
-  const user = await db.user.findUnique({
-    where: { id: payload.sub },
-    select: { id: true, email: true, name: true, role: true, avatar: true },
-  });
+  const user = (await db.user.findById(payload.sub).lean()) as UserLean | null;
   return user ? toSessionUser(user) : null;
 }
 
@@ -57,15 +63,13 @@ export async function getSession(): Promise<SessionUser | null> {
  * is not authenticated.
  */
 export async function getSessionOrRefresh(): Promise<SessionUser | null> {
+  await ensureConn();
   const store = await cookies();
   const access = store.get(ACCESS_COOKIE)?.value;
   if (access) {
     const payload = await verifyAccessToken(access);
     if (payload) {
-      const user = await db.user.findUnique({
-        where: { id: payload.sub },
-        select: { id: true, email: true, name: true, role: true, avatar: true },
-      });
+      const user = (await db.user.findById(payload.sub).lean()) as UserLean | null;
       if (user) return toSessionUser(user);
     }
   }
@@ -78,42 +82,40 @@ export async function getSessionOrRefresh(): Promise<SessionUser | null> {
   if (!binder) return null;
 
   const tokenHash = await hashToken(refresh);
-  const stored = await db.refreshToken.findUnique({
-    where: { tokenHash },
-    include: {
-      user: {
-        select: { id: true, email: true, name: true, role: true, avatar: true },
-      },
-    },
-  });
-  if (!stored || stored.revoked || stored.expiresAt < new Date()) {
+  const stored = (await db.refreshToken.findOne({ tokenHash }).lean()) as {
+    _id: string;
+    userId: string;
+    revoked: boolean;
+    expiresAt: Date;
+  } | null;
+  if (!stored || stored.revoked || new Date(stored.expiresAt) < new Date()) {
     return null;
   }
 
+  const user = (await db.user.findById(stored.userId).lean()) as UserLean | null;
+  if (!user) return null;
+
   // Rotate: revoke old, issue new.
-  await db.refreshToken.update({
-    where: { id: stored.id },
-    data: { revoked: true },
-  });
+  await db.refreshToken.updateOne(
+    { _id: stored._id },
+    { $set: { revoked: true } },
+  );
   const newOpaque = generateOpaqueToken();
   const newHash = await hashToken(newOpaque);
   await db.refreshToken.create({
-    data: {
-      userId: stored.userId,
-      tokenHash: newHash,
-      expiresAt: new Date(Date.now() + REFRESH_TOKEN_TTL * 1000),
-    },
+    userId: stored.userId,
+    tokenHash: newHash,
+    expiresAt: new Date(Date.now() + REFRESH_TOKEN_TTL * 1000),
   });
-  const newBinder = await signRefreshTokenBinder(stored.id, stored.userId);
 
-  store.set(ACCESS_COOKIE, await signAccessToken(toSessionUser(stored.user)), {
+  store.set(ACCESS_COOKIE, await signAccessToken(toSessionUser(user)), {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax",
     path: "/",
     maxAge: ACCESS_TOKEN_TTL,
   });
-  store.set(REFRESH_COOKIE, newBinder, {
+  store.set(REFRESH_COOKIE, await signRefreshTokenBinder(newOpaque, String(user._id)), {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax",
@@ -121,7 +123,7 @@ export async function getSessionOrRefresh(): Promise<SessionUser | null> {
     maxAge: REFRESH_TOKEN_TTL,
   });
 
-  return toSessionUser(stored.user);
+  return toSessionUser(user);
 }
 
 /** Throw-shaped helper for Route Handlers: returns the user or a 401 response. */
@@ -140,16 +142,15 @@ export async function requireSession(): Promise<
 
 /** Issue access + refresh cookies for a freshly authenticated user. */
 export async function setSessionCookies(user: SessionUser): Promise<void> {
+  await ensureConn();
   const store = await cookies();
   const access = await signAccessToken(user);
   const opaque = generateOpaqueToken();
   const tokenHash = await hashToken(opaque);
   await db.refreshToken.create({
-    data: {
-      userId: user.id,
-      tokenHash,
-      expiresAt: new Date(Date.now() + REFRESH_TOKEN_TTL * 1000),
-    },
+    userId: user.id,
+    tokenHash,
+    expiresAt: new Date(Date.now() + REFRESH_TOKEN_TTL * 1000),
   });
   const refreshBinder = await signRefreshTokenBinder(opaque, user.id);
 
@@ -171,6 +172,7 @@ export async function setSessionCookies(user: SessionUser): Promise<void> {
 
 /** Clear session cookies + revoke the refresh token. */
 export async function clearSessionCookies(): Promise<void> {
+  await ensureConn();
   const store = await cookies();
   const refresh = store.get(REFRESH_COOKIE)?.value;
   if (refresh) {
@@ -178,10 +180,7 @@ export async function clearSessionCookies(): Promise<void> {
     if (binder) {
       const tokenHash = await hashToken(refresh);
       await db.refreshToken
-        .updateMany({
-          where: { tokenHash, revoked: false },
-          data: { revoked: true },
-        })
+        .updateMany({ tokenHash, revoked: false }, { $set: { revoked: true } })
         .catch(() => undefined);
     }
   }

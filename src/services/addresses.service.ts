@@ -1,7 +1,9 @@
 /**
- * Addresses service — CRUD + default management.
+ * Addresses service — CRUD + default management (Mongoose).
  */
 import { db } from "@/lib/db";
+import { connectDB } from "@/lib/models";
+import mongoose from "mongoose";
 
 export class AddressesServiceError extends Error {
   constructor(
@@ -29,8 +31,9 @@ export interface AddressDto {
   updatedAt: string;
 }
 
-function toDto(a: {
-  id: string;
+interface AddressLean {
+  _id: string;
+  userId: string;
   fullName: string;
   line1: string;
   line2: string | null;
@@ -40,11 +43,17 @@ function toDto(a: {
   country: string;
   phone: string | null;
   isDefault: boolean;
-  createdAt: Date;
-  updatedAt: Date;
-}): AddressDto {
+  createdAt: Date | string;
+  updatedAt: Date | string;
+}
+
+function toDto(a: AddressLean): AddressDto {
+  const createdAt =
+    a.createdAt instanceof Date ? a.createdAt : new Date(a.createdAt);
+  const updatedAt =
+    a.updatedAt instanceof Date ? a.updatedAt : new Date(a.updatedAt);
   return {
-    id: a.id,
+    id: String(a._id),
     fullName: a.fullName,
     line1: a.line1,
     line2: a.line2,
@@ -54,17 +63,22 @@ function toDto(a: {
     country: a.country,
     phone: a.phone,
     isDefault: a.isDefault,
-    createdAt: a.createdAt.toISOString(),
-    updatedAt: a.updatedAt.toISOString(),
+    createdAt: createdAt.toISOString(),
+    updatedAt: updatedAt.toISOString(),
   };
+}
+
+async function ensureConn() {
+  if (mongoose.connection.readyState < 1) await connectDB();
 }
 
 export const addressesService = {
   async list(userId: string): Promise<AddressDto[]> {
-    const rows = await db.address.findMany({
-      where: { userId },
-      orderBy: [{ isDefault: "desc" }, { createdAt: "desc" }],
-    });
+    await ensureConn();
+    const rows = (await db.address
+      .find({ userId })
+      .sort({ isDefault: -1, createdAt: -1 })
+      .lean()) as AddressLean[];
     return rows.map(toDto);
   },
 
@@ -82,29 +96,23 @@ export const addressesService = {
       isDefault?: boolean;
     },
   ): Promise<AddressDto> {
-    // Sequential ops (avoids $transaction — needs replica set on standalone MongoDB).
+    await ensureConn();
     if (input.isDefault) {
-      await db.address.updateMany({
-        where: { userId },
-        data: { isDefault: false },
-      });
+      await db.address.updateMany({ userId }, { $set: { isDefault: false } });
     }
-    // If this is the user's first address, force it to default.
-    const count = await db.address.count({ where: { userId } });
-    const row = await db.address.create({
-      data: {
-        userId,
-        fullName: input.fullName,
-        line1: input.line1,
-        line2: input.line2 ?? null,
-        city: input.city,
-        state: input.state ?? null,
-        zip: input.zip,
-        country: input.country,
-        phone: input.phone ?? null,
-        isDefault: input.isDefault ?? count === 0,
-      },
-    });
+    const count = await db.address.countDocuments({ userId });
+    const row = (await db.address.create({
+      userId,
+      fullName: input.fullName,
+      line1: input.line1,
+      line2: input.line2 ?? null,
+      city: input.city,
+      state: input.state ?? null,
+      zip: input.zip,
+      country: input.country,
+      phone: input.phone ?? null,
+      isDefault: input.isDefault ?? count === 0,
+    })) as unknown as AddressLean;
     return toDto(row);
   },
 
@@ -123,46 +131,40 @@ export const addressesService = {
       isDefault: boolean;
     }>,
   ): Promise<AddressDto> {
-    // Sequential ops (avoids $transaction — needs replica set on standalone MongoDB).
+    await ensureConn();
     if (input.isDefault) {
-      await db.address.updateMany({
-        where: { userId },
-        data: { isDefault: false },
-      });
+      await db.address.updateMany({ userId }, { $set: { isDefault: false } });
     }
-    try {
-      const row = await db.address.update({
-        where: { id, userId },
-        data: input as never,
-      });
-      return toDto(row);
-    } catch {
+    const row = (await db.address
+      .findOneAndUpdate({ _id: id, userId }, { $set: input }, { new: true })
+      .lean()) as AddressLean | null;
+    if (!row) {
       throw new AddressesServiceError("Address not found", "not-found", 404);
     }
+    return toDto(row);
   },
 
   async delete(userId: string, id: string): Promise<void> {
-    try {
-      await db.address.delete({ where: { id, userId } });
-    } catch {
+    await ensureConn();
+    const result = await db.address.deleteOne({ _id: id, userId });
+    if (result.deletedCount === 0) {
       throw new AddressesServiceError("Address not found", "not-found", 404);
     }
   },
 
   async setDefault(userId: string, id: string): Promise<AddressDto> {
-    // Sequential ops (avoids $transaction — needs replica set on standalone MongoDB).
-    await db.address.updateMany({
-      where: { userId },
-      data: { isDefault: false },
-    });
-    try {
-      const row = await db.address.update({
-        where: { id, userId },
-        data: { isDefault: true },
-      });
-      return toDto(row);
-    } catch {
+    await ensureConn();
+    await db.address.updateMany({ userId }, { $set: { isDefault: false } });
+    const row = (await db.address
+      .findOneAndUpdate(
+        { _id: id, userId },
+        { $set: { isDefault: true } },
+        { new: true },
+      )
+      .lean()) as AddressLean | null;
+    if (!row) {
       throw new AddressesServiceError("Address not found", "not-found", 404);
     }
+    return toDto(row);
   },
 };

@@ -1,13 +1,12 @@
 /**
- * Auth service — signup/signin/refresh, backed by the User table.
+ * Auth service — signup/signin/refresh, backed by the User collection (Mongoose).
  * Token issuance + cookie management live in `@/lib/session`.
  */
 import { db } from "@/lib/db";
+import { connectDB } from "@/lib/models";
 import { hashPassword, verifyPassword } from "@/lib/password";
-import { ProductServiceError as _ } from "@/services/products.service"; // ensure tree-shake safe
 import type { SessionUser } from "@/lib/jwt";
-
-void _;
+import mongoose from "mongoose";
 
 export class AuthServiceError extends Error {
   constructor(
@@ -20,20 +19,27 @@ export class AuthServiceError extends Error {
   }
 }
 
-function toSessionUser(user: {
-  id: string;
+interface UserLean {
+  _id: string;
   email: string;
   name: string | null;
   role: string;
   avatar: string | null;
-}): SessionUser {
+  passwordHash: string;
+}
+
+function toSessionUser(user: UserLean): SessionUser {
   return {
-    id: user.id,
+    id: String(user._id),
     email: user.email,
     name: user.name,
     role: user.role,
     avatar: user.avatar,
   };
+}
+
+async function ensureConn() {
+  if (mongoose.connection.readyState < 1) await connectDB();
 }
 
 export const authService = {
@@ -42,22 +48,18 @@ export const authService = {
     email: string;
     password: string;
   }): Promise<SessionUser> {
-    const existing = await db.user.findUnique({
-      where: { email: input.email.toLowerCase() },
-    });
+    await ensureConn();
+    const existing = await db.user.findOne({ email: input.email.toLowerCase() });
     if (existing) {
       throw new AuthServiceError("Email already registered", "conflict", 409);
     }
     const passwordHash = await hashPassword(input.password);
-    const user = await db.user.create({
-      data: {
-        name: input.name,
-        email: input.email.toLowerCase(),
-        passwordHash,
-        role: "CUSTOMER",
-      },
-      select: { id: true, email: true, name: true, role: true, avatar: true },
-    });
+    const user = (await db.user.create({
+      name: input.name,
+      email: input.email.toLowerCase(),
+      passwordHash,
+      role: "CUSTOMER",
+    })) as unknown as UserLean;
     return toSessionUser(user);
   },
 
@@ -65,9 +67,10 @@ export const authService = {
     email: string;
     password: string;
   }): Promise<SessionUser> {
-    const user = await db.user.findUnique({
-      where: { email: input.email.toLowerCase() },
-    });
+    await ensureConn();
+    const user = (await db.user
+      .findOne({ email: input.email.toLowerCase() })
+      .lean()) as UserLean | null;
     if (!user) {
       throw new AuthServiceError("Invalid email or password", "invalid", 401);
     }
@@ -75,12 +78,6 @@ export const authService = {
     if (!ok) {
       throw new AuthServiceError("Invalid email or password", "invalid", 401);
     }
-    return toSessionUser({
-      id: user.id,
-      email: user.email,
-      name: user.name,
-      role: user.role,
-      avatar: user.avatar,
-    });
+    return toSessionUser(user);
   },
 };

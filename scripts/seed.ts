@@ -4,11 +4,14 @@
  *
  *   npx tsx scripts/seed.ts
  *
- * Idempotent: re-running skips existing rows (we use findFirst + create
- * instead of upsert, because upsert requires a replica set on standalone
- * MongoDB). After seeding, the entire app reads/writes against the local DB.
+ * Idempotent: re-running skips existing rows. After seeding, the entire
+ * app reads/writes against the local DB.
  */
-import { db } from "../src/lib/db";
+import { connectDB, ProductModel, CategoryModel, CouponModel } from "../src/lib/models";
+
+// Ensure the URI is clean (strip quotes if the .env loader kept them).
+const rawUri = process.env.DATABASE_URL ?? "";
+process.env.DATABASE_URL = rawUri.replace(/^["']|["']$/g, "");
 
 const DUMMY_BASE = "https://dummyjson.com";
 
@@ -52,9 +55,10 @@ async function fetchJson<T>(url: string): Promise<T> {
 }
 
 async function seed() {
+  await connectDB();
+
   // Fast path: if the DB already has products, skip the network fetches.
-  // This makes `predev` instant on every dev start after the first run.
-  const existing = await db.product.count();
+  const existing = await ProductModel.countDocuments();
   if (existing > 0) {
     console.log(`✓ Database already seeded (${existing} products). Skipping.`);
     return;
@@ -63,15 +67,11 @@ async function seed() {
   console.log("→ Seeding categories…");
   const cats = await fetchJson<DummyCategory[]>(`${DUMMY_BASE}/products/categories`);
   for (const cat of cats) {
-    // Avoid upsert() — it requires a replica set on standalone MongoDB.
-    const found = await db.category.findUnique({ where: { slug: cat.slug } });
+    const found = await CategoryModel.findById(cat.slug);
     if (found) {
-      await db.category.update({
-        where: { slug: cat.slug },
-        data: { name: cat.name },
-      });
+      await CategoryModel.updateOne({ _id: cat.slug }, { name: cat.name });
     } else {
-      await db.category.create({ data: { slug: cat.slug, name: cat.name } });
+      await CategoryModel.create({ _id: cat.slug, name: cat.name });
     }
   }
   console.log(`  ✓ ${cats.length} categories`);
@@ -80,7 +80,6 @@ async function seed() {
   let total = 0;
   let skip = 0;
   const limit = 100;
-  // DummyJSON reports ~194 products; loop until exhausted.
   while (true) {
     const batch = await fetchJson<DummyProductsResponse>(
       `${DUMMY_BASE}/products?limit=${limit}&skip=${skip}`,
@@ -90,6 +89,7 @@ async function seed() {
     for (const p of batch.products) {
       const price = Number(p.price.toFixed(2));
       const data = {
+        _id: p.id,
         title: p.title,
         description: p.description,
         category: p.category,
@@ -114,12 +114,11 @@ async function seed() {
         featured: p.rating >= 4.6,
         status: p.stock > 0 ? "active" : "inactive",
       };
-      // findFirst + update/create instead of upsert (no replica set needed).
-      const found = await db.product.findUnique({ where: { id: p.id } });
+      const found = await ProductModel.findById(p.id);
       if (found) {
-        await db.product.update({ where: { id: p.id }, data });
+        await ProductModel.updateOne({ _id: p.id }, { $set: data });
       } else {
-        await db.product.create({ data: { id: p.id, ...data } });
+        await ProductModel.create(data);
       }
     }
     total += batch.products.length;
@@ -135,19 +134,18 @@ async function seed() {
     { code: "FREESHIP", type: "fixed", value: 12, minSubtotal: 0 },
   ];
   for (const c of coupons) {
-    const found = await db.coupon.findUnique({ where: { code: c.code } });
+    const found = await CouponModel.findOne({ code: c.code });
     if (!found) {
-      await db.coupon.create({ data: { ...c, active: true } });
+      await CouponModel.create({ ...c, active: true });
     }
   }
   console.log(`  ✓ ${coupons.length} coupons`);
 
   console.log("→ Done.");
+  process.exit(0);
 }
 
-seed()
-  .catch((err) => {
-    console.error("Seed failed:", err);
-    process.exit(1);
-  })
-  .finally(() => db.$disconnect());
+seed().catch((err) => {
+  console.error("Seed failed:", err);
+  process.exit(1);
+});

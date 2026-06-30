@@ -1,16 +1,11 @@
 /**
- * Auto-seed — self-healing database bootstrap.
+ * Auto-seed — self-healing database bootstrap (Mongoose).
  *
- * Why this exists: a fresh `git clone` has an empty database. Rather than
- * forcing every developer to remember running `bun run scripts/seed.ts`,
- * this module runs once on the first server boot and seeds the catalog from
- * DummyJSON (the free public API) if — and only if — the Product table is
- * empty. On subsequent boots it's a no-op (a single COUNT query).
- *
- * It's imported from `src/lib/db.ts` so the check happens exactly once per
- * process, before any route handler reads from the DB.
+ * Runs once on the first server boot if the Product collection is empty,
+ * pulling the catalog from DummyJSON. On subsequent boots it's a no-op
+ * (a single countDocuments query). Imported from `src/lib/db.ts`.
  */
-import { db } from "./db";
+import { connectDB, ProductModel, CategoryModel, CouponModel } from "./models";
 
 const DUMMY_BASE = "https://dummyjson.com";
 
@@ -55,14 +50,7 @@ async function fetchJson<T>(url: string): Promise<T> {
 
 let seedingPromise: Promise<void> | null = null;
 
-/**
- * Ensures the database has products. Safe to call from anywhere — the
- * actual seeding runs at most once per process (guarded by `seedingPromise`).
- * Returns immediately if products already exist.
- */
 export async function ensureSeeded(): Promise<void> {
-  // If a seed is already in flight, wait for it rather than kicking off a
-  // second parallel run.
   if (seedingPromise) return seedingPromise;
   seedingPromise = doSeed();
   return seedingPromise;
@@ -70,31 +58,26 @@ export async function ensureSeeded(): Promise<void> {
 
 async function doSeed(): Promise<void> {
   try {
-    const count = await db.product.count();
-    if (count > 0) return; // already seeded — nothing to do
+    await connectDB();
+    const count = await ProductModel.countDocuments();
+    if (count > 0) return;
 
-    console.log(
-      "🌱 Database is empty — auto-seeding catalog from DummyJSON…",
-    );
+    console.log("🌱 Database is empty — auto-seeding catalog from DummyJSON…");
 
-    // 1. Categories — findUnique + update/create (avoids upsert, which
-    //    requires a replica set on standalone MongoDB).
+    // 1. Categories
     const cats = await fetchJson<DummyCategory[]>(
       `${DUMMY_BASE}/products/categories`,
     );
     for (const cat of cats) {
-      const found = await db.category.findUnique({ where: { slug: cat.slug } });
+      const found = await CategoryModel.findById(cat.slug);
       if (found) {
-        await db.category.update({
-          where: { slug: cat.slug },
-          data: { name: cat.name },
-        });
+        await CategoryModel.updateOne({ _id: cat.slug }, { name: cat.name });
       } else {
-        await db.category.create({ data: { slug: cat.slug, name: cat.name } });
+        await CategoryModel.create({ _id: cat.slug, name: cat.name });
       }
     }
 
-    // 2. Products (paginated) — findUnique + create (same reason as above).
+    // 2. Products (paginated)
     let total = 0;
     let skip = 0;
     const limit = 100;
@@ -107,6 +90,7 @@ async function doSeed(): Promise<void> {
       for (const p of batch.products) {
         const price = Number(p.price.toFixed(2));
         const data = {
+          _id: p.id,
           title: p.title,
           description: p.description,
           category: p.category,
@@ -131,9 +115,9 @@ async function doSeed(): Promise<void> {
           featured: p.rating >= 4.6,
           status: p.stock > 0 ? "active" : "inactive",
         };
-        const found = await db.product.findUnique({ where: { id: p.id } });
+        const found = await ProductModel.findById(p.id);
         if (!found) {
-          await db.product.create({ data: { id: p.id, ...data } });
+          await ProductModel.create(data);
         }
       }
       total += batch.products.length;
@@ -141,24 +125,21 @@ async function doSeed(): Promise<void> {
       if (skip >= batch.total) break;
     }
 
-    // 3. Demo coupons — findUnique + create (same pattern).
+    // 3. Demo coupons
     const coupons = [
       { code: "WELCOME10", type: "percent", value: 10, minSubtotal: 0 },
       { code: "AURORA20", type: "percent", value: 20, minSubtotal: 200 },
       { code: "FREESHIP", type: "fixed", value: 12, minSubtotal: 0 },
     ];
     for (const c of coupons) {
-      const found = await db.coupon.findUnique({ where: { code: c.code } });
+      const found = await CouponModel.findOne({ code: c.code });
       if (!found) {
-        await db.coupon.create({ data: { ...c, active: true } });
+        await CouponModel.create({ ...c, active: true });
       }
     }
 
     console.log(`✓ Auto-seeded ${total} products, ${cats.length} categories, ${coupons.length} coupons.`);
   } catch (err) {
-    // Don't crash the app if seeding fails (e.g. no network) — routes will
-    // show empty states gracefully and the developer can run the seed
-    // script manually once online.
     console.error("⚠ Auto-seed failed (the app will run with an empty catalog):", err instanceof Error ? err.message : err);
   }
 }

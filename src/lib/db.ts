@@ -1,27 +1,35 @@
-import { PrismaClient } from '@prisma/client'
-
-const globalForPrisma = globalThis as unknown as {
-  prisma: PrismaClient | undefined
-}
-
-export const db =
-  globalForPrisma.prisma ??
-  new PrismaClient({
-    log: process.env.NODE_ENV === "production" ? ["error"] : ["error", "warn"],
-  })
-
-if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = db
-
 /**
- * Self-healing: kick off a background seed check the moment the DB client is
- * created. If the catalog is empty (fresh clone / wiped DB), this pulls
- * products from DummyJSON automatically so the site is never blank.
+ * Database connection — Mongoose.
  *
- * The check is a single `COUNT(*)` and returns instantly if products exist.
- * We don't `await` here — routes render with whatever's in the DB and the
- * seed completes in the background; a refresh shows the full catalog.
+ * Exports a `db` object with all models for convenience, plus a `connectDB`
+ * function that establishes the connection (idempotent — safe to call on
+ * every request, returns immediately if already connected).
+ *
+ * The auto-seed check runs on the first successful connection so the
+ * catalog is never empty on a fresh database.
  */
+import { connectDB, UserModel, ProductModel, CategoryModel, OrderModel, OrderItemModel, AddressModel, WishlistItemModel, CompareItemModel, CouponModel, RefreshTokenModel } from "./models";
+
+/** Connect to MongoDB on first import (idempotent). */
 if (process.env.NODE_ENV !== "production") {
-  // Lazy import to avoid pulling fetch logic into the client bundle.
-  void import("./auto-seed").then(({ ensureSeeded }) => ensureSeeded());
+  connectDB()
+    .then(() => import("./auto-seed").then(({ ensureSeeded }) => ensureSeeded()))
+    .catch((err) => console.error("MongoDB connection error:", err));
 }
+
+/** Convenience namespace — all Mongoose models in one `db` object so the
+ *  service layer reads cleanly. */
+export const db = {
+  user: UserModel,
+  product: ProductModel,
+  category: CategoryModel,
+  order: OrderModel,
+  orderItem: OrderItemModel,
+  address: AddressModel,
+  wishlistItem: WishlistItemModel,
+  compareItem: CompareItemModel,
+  coupon: CouponModel,
+  refreshToken: RefreshTokenModel,
+};
+
+export { connectDB };
