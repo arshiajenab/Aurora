@@ -226,7 +226,7 @@ export default async function AdminDashboardPage() {
                       {order.id}
                     </TableCell>
                     <TableCell className="font-medium">
-                      {order.customer.fullName}
+                      {order.customerName}
                     </TableCell>
                     <TableCell>
                       <OrderStatusBadge status={order.status} />

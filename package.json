@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev -p 3000",
-    "predev": "npx tsx scripts/seed.ts",
+    
     "build": "next build",
     "vercel-build": "next build",
     "start": "NODE_ENV=production node .next/standalone/server.js",

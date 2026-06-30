@@ -159,6 +159,7 @@ export function OrdersTable({ orders }: { orders: Order[] }) {
             </TableHeader>
             <TableBody>
               {filtered.map((order) => {
+                  console.log(order);
                 const itemCount = order.items.reduce(
                   (sum, i) => sum + i.quantity,
                   0,
@@ -166,6 +167,8 @@ export function OrdersTable({ orders }: { orders: Order[] }) {
                 const itemSummary = order.items
                   .map((i) => i.title)
                   .join(", ");
+
+                
                 return (
                   <TableRow key={order.id} className="text-sm">
                     <TableCell className="px-6 font-mono text-xs text-muted-foreground">
@@ -174,7 +177,7 @@ export function OrdersTable({ orders }: { orders: Order[] }) {
                     <TableCell>
                       <div className="flex flex-col gap-0.5">
                         <span className="font-medium">
-                          {order.customer.fullName}
+                          {order.customerName}
                         </span>
                         <span className="text-xs text-muted-foreground">
                           {truncate(order.customer.email, 32)}
