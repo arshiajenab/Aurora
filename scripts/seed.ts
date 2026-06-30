@@ -49,6 +49,14 @@ async function fetchJson<T>(url: string): Promise<T> {
 }
 
 async function seed() {
+  // Fast path: if the DB already has products, skip the network fetches.
+  // This makes `predev` instant on every dev start after the first run.
+  const existing = await db.product.count();
+  if (existing > 0) {
+    console.log(`✓ Database already seeded (${existing} products). Skipping.`);
+    return;
+  }
+
   console.log("→ Seeding categories…");
   const cats = await fetchJson<DummyCategory[]>(`${DUMMY_BASE}/products/categories`);
   for (const cat of cats) {
