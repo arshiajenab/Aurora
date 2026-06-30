@@ -1,8 +1,6 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
-// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+// Aurora — full e-commerce schema.
+// SQLite is the dev datasource; the schema is portable to Postgres with
+// minimal changes (String[] → native arrays, String enums → enum types).
 
 generator client {
   provider = "prisma-client-js"
@@ -14,19 +12,177 @@ datasource db {
 }
 
 model User {
-  id        String   @id @default(cuid())
-  email     String   @unique
-  name      String?
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String?
+  passwordHash String
+  phone        String?
+  avatar       String?
+  role         String   @default("CUSTOMER") // CUSTOMER | ADMIN
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  addresses      Address[]
+  orders         Order[]
+  wishlistItems  WishlistItem[]
+  compareItems   CompareItem[]
+  refreshTokens  RefreshToken[]
+}
+
+model Product {
+  // Numeric id preserves the existing storefront contract (URLs use /products/:id).
+  id                     Int      @id @default(autoincrement())
+  title                  String
+  description            String   @default("")
+  category               String
+  price                  Float
+  discountPercentage     Float    @default(0)
+  rating                 Float    @default(0)
+  stock                  Int      @default(0)
+  tags                   String   @default("[]") // JSON array
+  brand                  String?
+  sku                    String?  @unique
+  weight                 Float    @default(0)
+  width                  Float    @default(0)
+  height                 Float    @default(0)
+  depth                  Float    @default(0)
+  warrantyInformation    String   @default("")
+  shippingInformation    String   @default("")
+  availabilityStatus     String   @default("In Stock")
+  returnPolicy           String   @default("30 days return policy")
+  minimumOrderQuantity   Int      @default(1)
+  thumbnail              String
+  images                 String   @default("[]") // JSON array
+  featured               Boolean  @default(false)
+  status                 String   @default("active") // active | inactive
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  orderItems    OrderItem[]
+  wishlistItems WishlistItem[]
+  compareItems  CompareItem[]
+
+  @@index([category])
+  @@index([status])
+  @@index([featured])
+}
+
+model Category {
+  slug     String   @id
+  name     String
+  image    String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
 
-model Post {
+model Order {
+  id              String   @id @default(cuid())
+  // Sequential, human-friendly number for invoices (assigned in app code).
+  number          Int      @unique
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status          String   @default("pending") // pending|processing|shipped|delivered|cancelled
+  subtotal        Float
+  discount        Float    @default(0)
+  shipping        Float    @default(0)
+  tax             Float    @default(0)
+  total           Float
+  shippingMethod  String   @default("standard") // standard | express
+  paymentMethod   String   @default("card") // card | cod | paypal
+  couponCode      String?
+  shippingAddress String   @default("{}") // JSON snapshot
+  billingAddress  String   @default("{}") // JSON snapshot
+  customerEmail   String
+  customerName    String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  items OrderItem[]
+
+  @@index([userId])
+  @@index([status])
+}
+
+model OrderItem {
+  id         String  @id @default(cuid())
+  orderId    String
+  order      Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId  Int
+  product    Product @relation(fields: [productId], references: [id], onDelete: Restrict)
+  title      String
+  price      Float
+  quantity   Int
+  thumbnail  String
+
+  @@index([orderId])
+  @@index([productId])
+}
+
+model Address {
   id        String   @id @default(cuid())
-  title     String
-  content   String?
-  published Boolean  @default(false)
-  authorId  String
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fullName  String
+  line1     String
+  line2     String?
+  city      String
+  state     String?
+  zip       String
+  country   String
+  phone     String?
+  isDefault Boolean  @default(false)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([userId])
+}
+
+model WishlistItem {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  productId Int
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, productId])
+  @@index([userId])
+}
+
+model CompareItem {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  productId Int
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, productId])
+  @@index([userId])
+}
+
+model Coupon {
+  id          String    @id @default(cuid())
+  code        String    @unique
+  type        String    // percent | fixed
+  value       Float
+  minSubtotal Float     @default(0)
+  active      Boolean   @default(true)
+  expiresAt   DateTime?
+  usageLimit  Int?
+  usedCount   Int       @default(0)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
+model RefreshToken {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String   @unique
+  expiresAt DateTime
+  revoked   Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([userId])
 }

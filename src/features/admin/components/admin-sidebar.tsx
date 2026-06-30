@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, Package, ShoppingCart } from "lucide-react";
+import { LayoutDashboard, Package, ShoppingCart, Users } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Logo } from "@/shared/components/logo";
 import { ThemeToggle } from "@/shared/components/theme-toggle";
@@ -29,6 +29,7 @@ const NAV_ITEMS = [
   { label: "Dashboard", href: "/admin", icon: LayoutDashboard },
   { label: "Products", href: "/admin/products", icon: Package },
   { label: "Orders", href: "/admin/orders", icon: ShoppingCart },
+  { label: "Customers", href: "/admin/customers", icon: Users },
 ] as const;
 
 function isActive(pathname: string, href: string): boolean {

@@ -16,8 +16,8 @@ export const SITE = {
 
 export const NAV_LINKS = [
   { label: "Shop", href: "/products" },
-  { label: "New", href: "/products?sortBy=newest" },
   { label: "Categories", href: "/categories" },
+  { label: "Compare", href: "/compare" },
   { label: "Admin", href: "/admin" },
 ] as const;
 

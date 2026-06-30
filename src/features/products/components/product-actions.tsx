@@ -1,17 +1,21 @@
 "use client";
 
 import * as React from "react";
-import { Minus, Plus, Heart, ShoppingBag, Check } from "lucide-react";
+import { Minus, Plus, Heart, ShoppingBag, Check, Scale } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { clamp } from "@/lib/format";
 import { useCartStore } from "@/features/cart/store/cart-store";
 import { useWishlistStore } from "@/features/wishlist/store/wishlist-store";
+import {
+  useCompareStore,
+  MAX_COMPARE,
+} from "@/features/compare/store/compare-store";
 import { useMounted } from "@/shared/hooks/use-mounted";
 import type { Product } from "@/types";
 
 /**
- * ProductActions — quantity selector + add to bag + wishlist toggle.
+ * ProductActions — quantity selector + add to bag + wishlist + compare.
  *
  * Client-only because it mutates persisted client stores.
  * The `mounted` gate keeps SSR markup from mismatching persisted state.
@@ -24,7 +28,12 @@ export function ProductActions({ product }: { product: Product }) {
   const addItem = useCartStore((s) => s.addItem);
   const toggleWishlist = useWishlistStore((s) => s.toggle);
   const inWishlist = useWishlistStore((s) =>
-    s.items.some((i) => i.id === product.id),
+    Array.isArray(s.items) ? s.items.some((i) => i.id === product.id) : false,
+  );
+  const toggleCompare = useCompareStore((s) => s.toggle);
+  const inCompare = useCompareStore((s) => s.ids.includes(product.id));
+  const compareFull = useCompareStore(
+    (s) => s.ids.length >= MAX_COMPARE && !s.ids.includes(product.id),
   );
 
   const outOfStock = product.stock <= 0;
@@ -49,6 +58,19 @@ export function ProductActions({ product }: { product: Product }) {
       { description: product.title },
     );
   };
+
+  const handleCompare = () => {
+    if (compareFull) return;
+    const willAdd = !inCompare;
+    toggleCompare(product);
+    toast.success(
+      willAdd ? "Added to compare" : "Removed from compare",
+      { description: product.title },
+    );
+  };
+
+  const compareActive = mounted && inCompare;
+  const compareDisabled = mounted && compareFull;
 
   return (
     <div className="flex flex-col gap-4">
@@ -128,6 +150,22 @@ export function ProductActions({ product }: { product: Product }) {
               Wishlist
             </>
           )}
+        </Button>
+
+        <Button
+          type="button"
+          size="lg"
+          variant="outline"
+          onClick={handleCompare}
+          disabled={compareDisabled}
+          aria-pressed={compareActive}
+          title={compareDisabled ? "Compare list full" : undefined}
+          className="gap-2 rounded-full"
+        >
+          <Scale
+            className={compareActive ? "h-4 w-4 fill-foreground" : "h-4 w-4"}
+          />
+          {compareActive ? "Comparing" : "Compare"}
         </Button>
       </div>
     </div>

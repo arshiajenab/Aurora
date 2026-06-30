@@ -29,6 +29,9 @@ export interface Product {
   meta: ProductMeta;
   thumbnail: string;
   images: string[];
+  /** Admin-only flags (optional so storefront consumers are unaffected). */
+  featured?: boolean;
+  status?: "active" | "inactive";
 }
 
 export interface ProductDimensions {
@@ -123,7 +126,7 @@ export interface RecentlyViewedItem {
   viewedAt: number;
 }
 
-/* ---------------- Orders (mock) ---------------- */
+/* ---------------- Orders ---------------- */
 
 export type OrderStatus =
   | "pending"
@@ -140,6 +143,10 @@ export interface OrderItem {
   thumbnail: string;
 }
 
+/**
+ * Legacy mock order shape (kept for backward compatibility with the
+ * original storefront checkout demo). New code should prefer `OrderDto`.
+ */
 export interface Order {
   id: string;
   createdAt: string;
@@ -157,6 +164,43 @@ export interface Order {
     zip: string;
     country: string;
   };
+}
+
+/**
+ * OrderDto — the wire shape returned by `ordersService` (DB-backed).
+ * This is the canonical order type for all client + server pages that
+ * consume the real /api/orders routes.
+ */
+export interface OrderItemDto {
+  id: string;
+  orderId: string;
+  productId: number;
+  title: string;
+  price: number;
+  quantity: number;
+  thumbnail: string;
+}
+
+export interface OrderDto {
+  id: string;
+  number: number;
+  userId: string;
+  status: OrderStatus;
+  subtotal: number;
+  discount: number;
+  shipping: number;
+  tax: number;
+  total: number;
+  shippingMethod: string;
+  paymentMethod: string;
+  couponCode: string | null;
+  shippingAddress: Record<string, unknown>;
+  billingAddress: Record<string, unknown>;
+  customerEmail: string;
+  customerName: string;
+  createdAt: string;
+  updatedAt: string;
+  items: OrderItemDto[];
 }
 
 /* ---------------- Admin analytics (mock) ---------------- */

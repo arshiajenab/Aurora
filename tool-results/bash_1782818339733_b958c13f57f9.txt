@@ -1,0 +1,284 @@
+# Aurora — Premium E-commerce Build Worklog
+
+This file is the single shared worklog for all agents working on the Aurora
+premium e-commerce project. Append (do NOT overwrite) when you finish a task.
+
+---
+Task ID: 1
+Agent: Senior Staff Engineer (main)
+Task: Foundation — design tokens, types, lib, services, state stores, providers
+
+Work Log:
+- Replaced `src/app/globals.css` with a premium monochrome design system (Apple/Nothing/Linear-inspired): refined neutral oklch tokens, hairline borders, glass utility, grid texture, shimmer skeletons, reduced-motion support.
+- Created `src/types/index.ts` — domain types (Product, Paginated, CartItem, WishlistItem, Order, etc.) decoupled from any upstream API shape.
+- Created `src/lib/constants.ts` (SITE config, NAV_LINKS, SORT_OPTIONS, pricing constants) and `src/lib/format.ts` (currency/number/percent/time-ago/order-id helpers).
+- Created `src/lib/api-client.ts` — framework-agnostic fetch wrapper with typed errors (NetworkError/TimeoutError/ApiError), AbortController timeout, exponential-backoff retry for transient failures.
+- Created `src/services/products.service.ts` — the ONLY module aware of DummyJSON's wire format; maps to domain types; exposes productService with getProducts/getProduct/getCategories/getFeatured/getNewArrivals/getRelated; uses `next.revalidate` cache + tags.
+- Created `src/services/admin.service.ts` — deterministic mock analytics (revenue series, KPIs, recent orders derived from live catalog, inventory summary).
+- Created Zustand stores with persistence + hydration flags: `features/cart/store/cart-store.ts` (+ selectors), `features/wishlist/store/wishlist-store.ts`, `features/recently-viewed/store/recently-viewed-store.ts`.
+- Created providers: `shared/providers/theme-provider.tsx` (next-themes, class strategy), `shared/providers/query-provider.tsx` (TanStack Query, conservative defaults), and `shared/hooks/use-mounted.ts`.
+
+Stage Summary:
+- Foundation contract is complete: domain types, service layer seam, state stores, providers.
+- All downstream UI MUST consume `@/types`, `@/services/*`, and the Zustand stores — never call DummyJSON directly.
+- Design system: monochrome, no indigo/blue, glass only via `.glass` utility, `.scrollbar-thin`, `.bg-grid`, `.tracking-luxe`, `.text-balance`.
+- Persisted localStorage keys: `aurora-cart`, `aurora-wishlist`, `aurora-recently-viewed`.
+- Pricing constants for checkout: SHIPPING_FLAT_RATE=12, TAX_RATE=0.08, FREE_SHIPPING_THRESHOLD=250, PRODUCTS_PER_PAGE=12.
+
+---
+Task ID: 2
+Agent: Senior Staff Engineer (main)
+Task: API route handlers + validation schemas (data layer surface)
+
+Work Log:
+- Created `src/lib/validations.ts` — Zod schemas (productQuerySchema, checkoutSchema) shared by route handlers.
+- Created `src/app/api/products/route.ts` (GET list with validation, error mapping, Cache-Control).
+- Created `src/app/api/products/[id]/route.ts` (GET one, 404 mapping).
+- Created `src/app/api/categories/route.ts` (GET).
+- Created `src/app/api/checkout/route.ts` (POST — mock order, server-side price lookup from catalog, totals computed server-side, returns Order).
+
+Stage Summary:
+- All client mutations/queries go through `/api/*` route handlers, which delegate to `@/services/*`.
+- Service errors map to HTTP: not-found→404, timeout→504, api→502, network→503, validation→400/422.
+- Checkout never trusts client prices — it resolves them from the catalog server-side.
+
+---
+Task ID: 3
+Agent: Senior Staff Engineer (main)
+Task: State stores + providers + hooks (already done in Task 1, consolidated)
+
+Work Log:
+- Zustand persisted stores: cart-store (+ selectors selectCartCount/selectCartSubtotal), wishlist-store (+ selectWishlistCount), recently-viewed-store. All with hydration flags.
+- Providers: theme-provider (next-themes, class strategy), query-provider (TanStack Query).
+- Hook: use-mounted for hydration-safe client rendering.
+
+Stage Summary:
+- Persisted localStorage keys: aurora-cart, aurora-wishlist, aurora-recently-viewed.
+- Stores expose pure selectors for derived values (never persist derived data).
+
+---
+Task ID: 4
+Agent: Senior Staff Engineer (main)
+Task: Root layout, fonts, metadata, SEO viewport, sticky-footer shell
+
+Work Log:
+- Rewrote `src/app/layout.tsx`: Inter + JetBrains_Mono fonts, ThemeProvider + QueryProvider, full Metadata (title template, OpenGraph, Twitter, robots, icons), Viewport with themeColor, sticky-footer shell via `flex min-h-screen flex-col`.
+- Created `src/app/(shop)/layout.tsx` (header + main + footer chrome for storefront).
+- Created `src/app/loading.tsx`, `src/app/error.tsx` (client boundary), `src/app/not-found.tsx`.
+- Created `public/icon.svg` (Aurora mark).
+- Removed old `src/app/page.tsx` and `src/app/api/route.ts`; landing now lives at `src/app/(shop)/page.tsx`.
+
+Stage Summary:
+- Root layout provides providers + sticky shell, NO header/footer (so admin can be clean).
+- Shop chrome (SiteHeader + SiteFooter) lives in the `(shop)` route group layout.
+- Admin will get its own layout at `src/app/admin/layout.tsx`.
+
+---
+Task ID: 5
+Agent: Senior Staff Engineer (main)
+Task: Shared components (the cross-page contract)
+
+Work Log:
+- `src/shared/components/logo.tsx` — Aurora wordmark + animated geometric mark.
+- `src/shared/components/theme-toggle.tsx` — hydration-safe sun/moon toggle.
+- `src/shared/components/section-heading.tsx` — Eyebrow + SectionHeading (left/center align, action slot).
+- `src/shared/components/empty-state.tsx` — consistent empty states with icon/title/desc/action.
+- `src/shared/components/reveal.tsx` — scroll-triggered Reveal + StaggerGroup + staggerItem variants.
+- `src/shared/components/site-header.tsx` — sticky glass header, active-nav indicator (layoutId), inline search, cart/wishlist badges, mobile Sheet, theme toggle.
+- `src/shared/components/site-footer.tsx` — newsletter band (mock submit), footer nav, legal row, FooterMarquee.
+- `src/features/products/components/product-card.tsx` — ProductCard (Framer hover lift, image zoom, wishlist toggle, quick-add, discount/soldout badges, rating) + ProductCardSkeleton.
+- `src/features/cart/components/cart-sheet.tsx` — slide-out bag (free-shipping progress, qty stepper, line-item animations, subtotal, checkout CTA) + ClearBagButton.
+
+Stage Summary:
+- Shared component contract is complete. Downstream pages MUST use these.
+- ProductCard props: { product: Product; priority?: boolean; className?: string }.
+- CartSheet props: { open: boolean; onOpenChange: (open:boolean)=>void }.
+- Design utilities available: .glass, .bg-grid, .scrollbar-thin, .tracking-luxe, .text-balance, .hairline, .skeleton-shimmer, .mask-fade-b.
+
+---
+Task ID: 7
+Agent: Admin Panel Engineer
+Task: Admin panel — dashboard, products table, orders table, app shell chrome
+
+Work Log:
+- Created the admin app shell: `src/features/admin/components/admin-shell.tsx` (client, owns the mobile sidebar drawer state) composed by the server layout `src/app/admin/layout.tsx`. Layout exports `metadata` with `title.template = "%s — Aurora Admin"` and `robots: { index: false, follow: false }`.
+- `admin-sidebar.tsx` (client) — fixed left rail on `lg+`, slides in as a `Sheet` on mobile. Active link highlighting via `usePathname` (trailing-segment match so `/admin/products/123` still lights up "Products"). Logo + "Admin Console" eyebrow at top, "View storefront →" link + theme toggle at bottom.
+- `admin-topbar.tsx` (client) — sticky `h-14` glass bar. Mobile hamburger opens the sidebar drawer. Page title + crumb derived from `usePathname`. Theme toggle + "View store" link (hidden on mobile) on the right.
+- Dashboard `src/app/admin/page.tsx` (server): parallel `Promise.all` fetch of `getKpis`, `getRevenueSeries`, `getRecentOrders`, `getInventory`. Renders page header + date-range pill, KPI grid (2/3/6 cols), revenue chart card with total/avg/orders stats, two-column (recent orders table 6 rows + inventory donut card with low-stock warnings + out-of-stock alert), orders-by-status strip. `loading.tsx` skeleton matches the section rhythm.
+- `kpi-card.tsx` (client) — Framer Motion hover lift, monochrome delta (positive=`text-foreground`, negative=`text-muted-foreground`), TrendingUp/Down/Minus icon.
+- `kpi-grid.tsx` (client island) — wraps the KPI tiles in `StaggerGroup` + `motion.div` children. Extracted because `motion.*` cannot be instantiated in a server component (Framer Motion's `createMotionComponent` is client-only).
+- `revenue-chart.tsx` (client) — Recharts `AreaChart` inside shadcn `ChartContainer`, gradient fill pinned to `--chart-1`, hairline dashed Y grid, custom `ChartTooltipContent` with compact currency formatting. Wrapped in `h-[280px]` parent for `ResponsiveContainer`.
+- `inventory-chart.tsx` (client) — Recharts `PieChart` donut (in/low/out), centered `Label` renders total catalog size. Exports `InventoryLegend` for the parent to compose next to the donut.
+- `order-status-badge.tsx` — monochrome status pill with 5 variants: pending (muted), processing (secondary), shipped (outline + dot), delivered (solid foreground bg), cancelled (destructive-tinted — the only non-neutral, reserved for the failure state).
+- Products page `src/app/admin/products/page.tsx` (server): reads `searchParams` (`page`, `sortBy`, `q`), calls `productService.getProducts({page, limit:20, sortBy, search})`. Table columns: Product (thumbnail+title+category via `next/image`), SKU, Price, Stock (dot+count), Rating, Status badge, actions menu (View → `/products/{id}`, Edit/Delete mock). Pagination footer preserves query params. Empty state for no results. `loading.tsx` skeleton.
+- `products-toolbar.tsx` (client) — debounced (240ms) search input → `?q=` via `router.replace`, sort `Select` → `?sortBy=`, mock Export button (sonner toast). Resets to page 1 on query/sort change.
+- `stock-indicator.tsx` — `StockIndicator` (dot + count, monochrome: foreground/muted-foreground/destructive) and `StockBadge` (In stock / Low / Out of stock) for the products table.
+- Orders page `src/app/admin/orders/page.tsx` (server): fetches `getRecentOrders()`, renders page header with volume/open/value summary stats + the `OrdersTable` client island. `loading.tsx` skeleton.
+- `orders-table.tsx` (client) — status filter `Tabs` (All/Pending/Processing/Shipped/Delivered/Cancelled) with count badges + free-text search (order ID, customer name, email). Filters in-memory for instant UX. Renders the orders table with Order ID, Customer (name+email), Items (count+summary), Total, Status badge, Date (timeAgo).
+- `next.config.ts` — added `images.remotePatterns` for `cdn.dummyjson.com` + `dummyjson.com`. This unblocks `next/image` for product thumbnails across the ENTIRE app (storefront included) — a non-breaking additive change. Dev server auto-restarted to pick it up.
+
+Stage Summary:
+- Admin chrome is complete: fixed sidebar (desktop) + Sheet drawer (mobile), sticky glass topbar, scrollable main area. Fully responsive.
+- Three admin routes ship: `/admin` (dashboard), `/admin/products` (catalog table with server-side search/sort/pagination), `/admin/orders` (filterable orders table).
+- All data fetching is server-side via `adminService` / `productService`. Charts and interactive controls are client islands that receive already-fetched data as props.
+- Design language is strictly monochrome (NO indigo/blue/purple). The only non-neutral color is `destructive`, reserved for out-of-stock and cancelled states.
+- KPI cards: `KpiCard` props `{ kpi: AdminKpi }`. Revenue chart: `RevenueChart` props `{ data: RevenuePoint[] }`. Inventory chart: `InventoryChart` props `{ data: InventoryDatum[], total: number }` + `InventoryLegend` props `{ data: InventoryDatum[] }`. Orders table: `OrdersTable` props `{ orders: Order[] }`. Products toolbar: `ProductsToolbar` props `{ total, page, sortBy, q }`.
+- All admin routes verified: `curl /admin`, `/admin/products`, `/admin/orders`, `/admin/products?q=phone&page=1`, `/admin/products?sortBy=price-asc` → all 200, no compile errors, no hydration warnings, no runtime errors.
+- `bun run lint` clean for all admin files (0 errors, 0 warnings).
+- Gotcha for future agents: Framer Motion's `motion.*` components CANNOT be instantiated in a Server Component. If a server page needs motion, extract the motion JSX into a client child and pass plain data as props. See `kpi-grid.tsx` for the pattern.
+
+---
+Task ID: 6
+Agent: Storefront Engineer (shop pages)
+Task: Build the complete shop storefront — landing, catalog, product detail, categories, cart, checkout, order-success, wishlist, search
+
+Work Log:
+- Bugfix: `src/features/products/components/product-card.tsx` was importing `formatCurrency` from `@/lib/utils` (which only exports `cn`); corrected to import from `@/lib/format`. This was a latent runtime error from Task 5 that would have surfaced as soon as ProductCard rendered on the new landing page.
+- `src/app/(shop)/page.tsx` (Server Component): editorial landing with hero (bg-grid + radial mask, featured product visual with glass overlay), value-props band (Truck/RotateCcw/ShieldCheck), Featured this season grid (productService.getFeatured(8)), category showcase tiles (productService.getCategories()), editorial quote band, New arrivals horizontal rail (productService.getNewArrivals(8)), final CTA. All fetches wrapped in Promise.allSettled; failures degrade to EmptyState. Exclusively uses `Reveal` (per-item, incremental delay) for scroll-in animation since `motion.*` cannot be invoked from a Server Component.
+- `src/features/products/components/product-filters.tsx` (Client): URL-as-source-of-truth filter sidebar. Updates `router.push` with new search params on every change. Includes category RadioGroup, min/max price inputs (debounced 500ms), sort Select, "Clear filters" action. Renders inline sticky on `lg+`, inside a Sheet on mobile.
+- `src/app/(shop)/products/page.tsx` (Server): catalog page. Reads `category/sortBy/page/q/minPrice/maxPrice` from `searchParams: Promise<...>`, calls `productService.getProducts({...})`, renders sidebar + grid + numbered pagination with ellipses. Empty state when no items. Error empty state when fetch rejects. `loading.tsx` ships a layout-matching skeleton (sidebar + 12-card grid).
+- `src/features/products/components/product-gallery.tsx` (Client): main image + thumbnail rail. Crossfade via AnimatePresence + motion.div. Keyboard accessible (ArrowLeft/ArrowRight on the main image). Responsive (thumbnails left on desktop, bottom on mobile).
+- `src/features/products/components/product-actions.tsx` (Client): quantity stepper + Add to bag (with brief "Adding…" state + toast.success) + Wishlist toggle (gated on `mounted` for hydration safety).
+- `src/features/products/components/recently-viewed-tracker.tsx` (Client): no-op island that pushes the current product to the persisted recently-viewed store on mount.
+- `src/features/products/components/recently-viewed-list.tsx` (Client): reads the persisted store, filters out the current product, renders up to 4 cards. Pre-mount renders skeleton; empty store renders a subtle prompt.
+- `src/app/(shop)/products/[id]/page.tsx` (Server): product detail. Breadcrumbs (home/products/category/title), two-column layout (gallery + info), price + strikethrough + discount badge, rating + availability, description, ProductActions island, trust band (Truck/RotateCcw/ShieldCheck), Accordion (Details / Shipping / Returns / Reviews), tags. Below: Related products grid (productService.getRelated) + Recently viewed (client island). `generateMetadata` for dynamic SEO (OpenGraph + Twitter image = product thumbnail). `loading.tsx` mirrors the layout.
+- `src/app/(shop)/categories/page.tsx` (Server): premium grid of category tiles linking to `/products?category={slug}`. Image + glass overlay + label.
+- `src/app/(shop)/cart/page.tsx` (Client): full cart. Pre-mount skeleton (avoids hydration mismatch with persisted store). Empty state with ShoppingBag icon. Desktop table layout (Product / Quantity / Total / remove), mobile stacked with inline qty + remove. Sticky order summary card (subtotal, shipping estimate with free-shipping progress, tax, total, "Proceed to checkout" → /checkout, ClearBagButton, continue shopping). Reuses the cart store's selectors (selectCartCount, selectCartSubtotal).
+- `src/app/(shop)/checkout/page.tsx` (Client): React Hook Form + Zod resolver. Two-column: contact + shipping form (with country Select) + trust badges, sticky order summary with line items. On submit POSTs to `/api/checkout` with `{items: [{id, quantity}], customer}`. On success: `router.push('/order-success?orderId=...')` + `useCartStore.clear()` + toast.success. On error: toast.error + stay on page. Empty-cart state with CTA back to catalog.
+- `src/app/(shop)/order-success/page.tsx` + `layout.tsx` (Client page, Server layout): animated check (Framer Motion spring + pulsing ring), order id, "confirmation sent to your email", CTAs (continue shopping, back to home). Layout exports `robots: { index: false, follow: false }` metadata (page is client, so metadata lives in the layout).
+- `src/app/(shop)/wishlist/page.tsx` (Client): reads `useWishlistStore`. Empty state (Heart icon). Grid of cards with image, title, price, "Add to bag" (fetches full Product from `/api/products/{id}` to get stock/category, then addItem), remove button. Header has "Move all to bag" (parallel fetches + add) and "Clear wishlist". Pre-mount skeleton.
+- `src/app/(shop)/search/page.tsx` (Server) + `src/features/products/components/search-sort-select.tsx` (Client): search results page. Reads `q/page/sortBy`. Empty state when no `q`. Grid + pagination (same component pattern as /products). Sort is a tiny client island that mutates the URL. `generateMetadata` for dynamic SEO.
+
+Stage Summary:
+- Every storefront route from the spec is implemented and verified to return HTTP 200 with the expected content (verified via curl for `/`, `/products`, `/products/1`, `/products/2`, `/products?category=smartphones&sortBy=price-asc&page=1&minPrice=100&maxPrice=1000`, `/categories`, `/cart`, `/checkout`, `/wishlist`, `/search?q=watch`, `/search`, `/order-success?orderId=AUR-XYZ12`).
+- `bun run lint` is clean: 0 errors, 0 warnings.
+- `npx tsc --noEmit` shows zero errors in any file under `src/app/(shop)/`, `src/features/products/`, `src/features/cart/`, `src/features/wishlist/`, or `src/features/recently-viewed/` (the remaining TS errors are all in Task 1 foundation — `services/admin.service.ts`, `services/products.service.ts` `tags` in FetchOptions — and Task 7 admin code).
+- No hydration warnings, no compile errors in `dev.log` for any of the new routes.
+- POST `/api/checkout` end-to-end verified: returns 201 with a full `Order` (server-side price lookup working, totals computed with SHIPPING_FLAT_RATE/TAX_RATE/FREE_SHIPPING_THRESHOLD).
+- Design discipline: monochrome palette only (no indigo/blue/purple), hairline borders, rounded-2xl cards, rounded-full buttons/pills, `tracking-luxe` eyebrows, `.glass` used sparingly, `.bg-grid` only in hero/CTA, `Reveal` for scroll-in, `useMounted` gate on every persisted-store read.
+- Known limitations / not-my-job issues left for other agents: (1) `services/products.service.ts` passes `tags` at top level instead of inside `next` (TS error in FetchOptions — Task 1's responsibility; runtime works because Next.js reads it correctly); (2) `services/admin.service.ts` `trend` field is typed as `string` instead of the literal union (Task 1); (3) admin route has a `motion.div` invocation from a Server Component at `src/app/admin/page.tsx:133` (Task 7 — same bug I fixed in my landing page).
+- Files created: 14 new files (8 page.tsx, 2 loading.tsx, 1 layout.tsx, 5 client components). Files modified: 2 (`product-card.tsx` import fix, `next.config.ts` already had image config from foundation).
+
+---
+Task ID: 8
+Agent: Senior Staff Engineer (main)
+Task: SEO (sitemap, robots, manifest) + zero-error quality pass
+
+Work Log:
+- Created `src/app/sitemap.ts` (dynamic — static routes + all product detail pages, best-effort product fetch).
+- Created `src/app/robots.ts` (allow /, disallow /admin /api /checkout /cart /order-success; points to sitemap).
+- Created `src/app/manifest.ts` (PWA manifest, standalone, dark theme colors, icon.svg).
+- Removed static `public/robots.txt` so `robots.ts` takes effect.
+- Fixed 3 TypeScript errors found via `tsc --noEmit`:
+  • `services/products.service.ts` — moved `tags` inside `next` (NextFetchRequestConfig).
+  • `services/admin.service.ts` — typed the KPI array as `AdminKpi[]` to preserve `trend` literal union.
+  • `shared/components/reveal.tsx` — typed `staggerItem` as `Variants` and extracted `EASE_OUT` tuple for framer-motion ease typing.
+- Narrowed `tsconfig.json` include to `src/**` and excluded `examples/skills/download` scaffolding.
+
+Stage Summary:
+- `npx tsc --noEmit` → 0 errors. `bun run lint` → 0 errors, 0 warnings.
+- All 16 routes return correct HTTP status (200 valid / 404 unknown).
+- SEO surface complete: sitemap.xml, robots.txt, manifest.webmanifest all serve 200.
+
+---
+Task ID: 9
+Agent: Senior Staff Engineer (main)
+Task: Lint + TypeScript clean (consolidated)
+
+Work Log:
+- Ran `bun run lint` (0 errors) and `npx tsc --noEmit` (0 errors) after fixes in Task 8.
+- Monitored `/home/z/my-project/dev.log` throughout — no compile errors, no hydration warnings, no runtime errors for any route.
+
+Stage Summary:
+- Quality bar met: zero TS errors, zero ESLint errors, zero hydration issues, zero console warnings.
+
+---
+Task ID: 10
+Agent: Senior Staff Engineer (main)
+Task: Agent Browser end-to-end verification (MANDATORY)
+
+Work Log:
+- Opened `/` → title "Home — Aurora", no page/console errors. VLM rated hero 8/10 (strong minimalist aesthetic, crisp typography, no broken layout).
+- Golden path: clicked "Add to bag" on a featured product → toast "Added to bag" fired → opened CartSheet (line item, qty stepper, free-shipping progress, checkout CTA) → navigated to /checkout → filled RHF+Zod form → "Place order" → redirected to /order-success?orderId=AUR-BNPZ3 → order ID displayed → cart cleared (badge gone). Zero errors.
+- Product detail `/products/1`: breadcrumbs (Home/Products), image gallery, Add to bag, Related objects section, Recently viewed section. All present.
+- Category filter `/products?category=smartphones` → 12 smartphone products (iPhone 5s/6/13 Pro/X, Oppo A57…). Filtering works.
+- Search `/search?q=watch` → "Results for 'watch'" + 12 results (Brown Leather Belt Watch, Longines, Rolex Cellini, Rolex Datejust…).
+- Admin `/admin` → title "Admin — Aurora", sections: Dashboard, Revenue, Recent orders, Inventory health, Orders by status. Sidebar nav (Dashboard/Products/Orders). Recharts rendered (2 surfaces, 2 responsive containers, 21 SVGs). VLM rated admin 8/10 (excellent data-viz clarity, SaaS-polish).
+- Admin `/admin/products` → 20-row table with thumbnail, SKU, price, stock, rating, status.
+- Dark mode toggle → `html.dark` applied, dark background. Persists across navigation.
+- Mobile (iPhone 14, 390×844) → hamburger "Open menu" button present, h1 renders, content flows.
+- Sticky footer: `gapBelowFooter = 0` on both long and short pages; on a 1600px-tall viewport with empty wishlist, `footerReachesViewportBottom = true` (sticks to bottom, no floating gap).
+- 404 page → "This page drifted off-course." with 404 label + home link, premium on-brand.
+
+Stage Summary:
+- Every core flow is browser-verified and interactive. No runtime errors, no hydration warnings, no broken interactions.
+- The site is production-ready and meets the "browser-verified interactivity" standard of done.
+
+---
+Task ID: 11
+Agent: Senior Staff Engineer (main)
+Task: Full backend — Prisma schema, seed, JWT auth, services, API routes (foundation for extension)
+
+Work Log:
+- Installed `jose` (Edge JWT) + `bcryptjs` (password hashing).
+- Wrote full Prisma schema (`prisma/schema.prisma`): User, Product (Int id, preserves storefront contract), Category, Order (+number, status, shippingMethod, paymentMethod, couponCode, addresses JSON), OrderItem, Address, WishlistItem, CompareItem, Coupon, RefreshToken. SQLite-compatible (arrays as JSON strings, enums as validated strings).
+- `bun run db:push` succeeded. Wrote `scripts/seed.ts` pulling 194 products + 24 categories from DummyJSON + 3 demo coupons into the DB. Ran it.
+- Auth core: `lib/password.ts` (bcrypt), `lib/jwt.ts` (access 15min + opaque refresh via jose), `lib/auth-constants.ts` (edge-safe cookie names), `lib/rate-limit.ts` (in-memory token bucket + IP extraction), `lib/session.ts` (getSession/getSessionOrRefresh/requireSession/setSessionCookies/clearSessionCookies), `src/middleware.ts` (protects /checkout + /account/* only; admin open; redirects to /signin?callbackUrl=).
+- Refactored `services/products.service.ts` to be DB-backed with IDENTICAL public interface (storefront pages unchanged). Added admin CRUD: listAllForAdmin, createProduct, updateProduct, deleteProduct.
+- New services: `auth.service.ts` (signup/signin), `orders.service.ts` (createOrder with stock guard + coupon + stock decrement in tx, listForUser/Admin, updateStatus with restock-on-cancel, getRecent), `users.service.ts` (profile/changePassword/deleteAccount/listCustomers with totalSpent), `addresses.service.ts` (CRUD + setDefault with first-address-auto-default), `wishlist.service.ts` (listIds/add/remove/replace), `compare.service.ts` (MAX_COMPARE=4, same pattern), `coupons.service.ts` (validate with expiry/usage/minSubtotal), `admin.service.ts` refactored to REAL DB aggregates (getKpis/getRevenueSeries/getRecentOrders/getLatestProducts/getInventory/getCustomers/getCustomerDetail).
+- Updated `lib/validations.ts` with full Zod schemas: productQuery, adminProductQuery, createProduct, updateProduct, signUp, signIn, changePassword, checkout (with shippingAddress/billingAddress/shippingMethod/paymentMethod/couponCode), orderStatus, address, updateProfile, couponValidate.
+- API routes: auth (signup/signin/refresh/logout/me with rate limiting), products (GET list + POST create), products/[id] (GET/PUT/DELETE), orders (POST create + GET list), orders/[id] (GET), orders/[id]/status (PATCH), admin/orders (GET), admin/products (GET), admin/stats (GET real aggregates), admin/customers (GET list), admin/customers/[id] (GET detail), users/me (GET/PATCH/PUT password/DELETE account), addresses (GET/POST), addresses/[id] (PATCH/DELETE), addresses/[id]/default (POST), wishlist (GET/PUT replace), wishlist/[productId] (POST/DELETE), compare (GET/PUT), compare/[productId] (POST/DELETE), coupons/validate (POST), upload (POST multipart → public/uploads/<kind>), checkout (legacy alias → orders). categories updated to DB.
+- Created `features/compare/store/compare-store.ts` (Zustand persisted, MAX_COMPARE=4, toggle/add/remove/clear/setIds).
+- Created `features/auth/hooks/use-auth.tsx` (AuthProvider + useAuth): auto-login via /api/auth/me on mount, signIn/signUp/signOut, triggers wishlist+compare DB sync on guest→auth transition.
+- Wired AuthProvider into root layout.
+- Updated `lib/constants.ts` NAV_LINKS: removed "New", added "Compare". 
+- Updated `shared/components/site-header.tsx`: added Compare button (with badge), Account dropdown menu (avatar + Dashboard/Orders/Profile/Sign out) when authenticated, "Sign in" button when not.
+- Silenced noisy Prisma query logging (error/warn only).
+
+Stage Summary:
+- Full backend is live and DB-backed. `npx tsc --noEmit` clean, `bun run lint` clean (0 errors).
+- Storefront unchanged interface; reads now come from local DB (seeded from DummyJSON — the "free public API" data source).
+- Auth: JWT access (15min, httpOnly cookie) + rotating opaque refresh (30d, DB-backed, revocable). Middleware protects /checkout + /account only.
+- Demo coupons seeded: WELCOME10 (10%), AURORA20 (20% over $200), FREESHIP ($12 off).
+- All API routes return correct HTTP status; /api/auth/me returns 200 (auto-login works).
+
+Key contracts for downstream UI agents:
+- `useAuth()` from `@/features/auth/hooks/use-auth` → { user, loading, signIn, signUp, signOut, refresh }. user is `PublicUser | null`.
+- `useCompareStore` from `@/features/compare/store/compare-store` → { ids, toggle(product), add(id), remove(id), clear(), has(id), setIds(ids) }, MAX_COMPARE=4, selectCompareCount.
+- API: POST /api/auth/signin {email,password}→{user}; POST /api/auth/signup {name,email,password}→{user}; POST /api/auth/logout; GET /api/auth/me→{user|null}.
+- API: GET /api/orders?page&limit&status; GET /api/orders/[id]; POST /api/orders (checkoutSchema); POST /api/admin/orders/[id]/status {status}.
+- API: GET/POST /api/addresses; PATCH/DELETE /api/addresses/[id]; POST /api/addresses/[id]/default.
+- API: GET/PATCH/PUT(password)/DELETE(account) /api/users/me.
+- API: GET /api/wishlist→{ids}; PUT /api/wishlist {ids}; POST/DELETE /api/wishlist/[productId].
+- API: GET /api/compare→{ids,max}; PUT /api/compare {ids}; POST/DELETE /api/compare/[productId].
+- API: POST /api/coupons/validate {code,subtotal}→{coupon:{code,type,value,discount,minSubtotal}}.
+- API: GET /api/admin/stats→{kpis,revenue,recentOrders,inventory,latestProducts}; GET /api/admin/customers?page&limit&q; GET /api/admin/customers/[id].
+- API: POST /api/upload (multipart "files", ?kind=products|avatars)→{urls}. Saves to public/uploads/<kind>/.
+- API: POST /api/products (createProductSchema)→Product; PUT /api/products/[id] (updateProductSchema); DELETE /api/products/[id]; GET /api/admin/products?page&limit&q&category&status.
+- Services are also importable directly in Server Components: productService, ordersService, usersService, addressesService, wishlistService, compareService, couponsService, adminService.
+- Session helpers (server): getSession(), getSessionOrRefresh(), requireSession() from `@/lib/session`. requireSession returns {ok:true,user} | {ok:false,response}.
+
+---
+Task ID: C
+Agent: Compare Feature Engineer
+Task: Product compare feature — compare page, floating bar, ProductCard + ProductActions toggles, DB sync verification
+
+Work Log:
+- Read worklog (Task 11 confirmed backend DONE: `/api/compare` + `compareService` + `compare-store` + `use-auth.tsx` guest→auth sync + `CompareSync` ongoing PUT). All 5 task items were already scaffolded; verified each and applied minimal-touch refinements to align with the explicit spec.
+- `src/features/compare/components/compare-view.tsx` — switched EmptyState icon from `GitCompare` → `Scale` (spec says Scale; matches the icon used on ProductCard/ProductActions for consistency). Changed alternate-row background from `bg-muted/50` → `bg-muted/40` per spec (both the sticky label `<th>` and the data `<td>`). All other logic left untouched: parallel `Promise.all(ids.map(id => fetch('/api/products/'+id).then(r=>r.json())))`, hydration-safe `useMounted()` gate, sticky first column `z-10 bg-background`, 18 attribute rows (Image+title+remove in header; Price, Discount, Rating, Stock, Brand, Category, SKU, Weight, Dimensions, Warranty, Shipping, Availability, Return policy, Min. order qty, Tags, Description in body), Add-to-bag footer row, loading skeleton, header (eyebrow + "Compare N of 4" + "Clear all").
+- `src/features/compare/components/compare-bar.tsx` — shrunk thumbnails from `h-9 w-9` (36px) → `h-8 w-8` (32px) per spec; aligned `next/image sizes="36px"` → `sizes="32px"` and the dashed empty-slot circles to `h-8 w-8`. Switched the "Clear" button icon from `Trash2` → `X` per spec ("Clear" X); removed the now-unused `Trash2` import. Existing behaviour preserved: AnimatePresence slide-up from bottom, glass + rounded-full + shadow, `useMounted()` gate, visible at `count >= 1`, "Compare now" disabled if `<2`, hidden SR link to `/compare`, safe-area inset bottom padding, lazy thumbnail cache via `fetchedRef` Set.
+- `src/features/products/components/product-card.tsx` — verified already-compliant: Scale icon button placed under the wishlist Heart in the top-right cluster; `toggleCompare(product)`; fills (`fill-foreground text-foreground`) when active; `disabled={compareDisabled}` + `cursor-not-allowed opacity-50` + `Tooltip` "Compare list full" when `ids.length >= MAX_COMPARE && !ids.includes(product.id)`; toast on add/remove; `useMounted()` gate; existing wishlist/quick-add/hover untouched.
+- `src/features/products/components/product-actions.tsx` — verified already-compliant: outline `variant="outline"` "Compare" button next to Add to bag + Wishlist; Scale icon (fills when active); `disabled={compareDisabled}` + `title="Compare list full"`; toast on toggle; `useMounted()` gate.
+- DB sync verified in `src/features/auth/hooks/use-auth.tsx` (lines 52–109): on guest→auth transition (`prevUserId.current !== user.id`), reads `aurora-wishlist` + `aurora-compare` from `localStorage`, parses IDs, `PUT /api/wishlist` + `PUT /api/compare` in parallel, then `GET /api/wishlist` + `GET /api/compare` and rehydrates `localStorage`. `src/features/compare/components/compare-sync.tsx` handles the ongoing PUT on `ids` change when authed (skip-first-emit pattern so it doesn't duplicate the auth transition's PUT). No edits required.
+- `src/app/(shop)/layout.tsx` — already wires `<CompareBar />` + `<CompareSync />` after `<SiteFooter />` (both are fixed/no-UI so no layout impact). No edits required.
+- `src/app/(shop)/compare/page.tsx` — server shell, exports `metadata = { title: "Compare", robots: { index: false, follow: false } }`, renders `<CompareView />`. No edits required. (Spec wrote `src/app/compare/page.tsx`; the existing `(shop)` route group renders at URL `/compare` — route groups don't affect the URL — so this is the correct location and matches the established storefront pattern.)
+- `src/app/(shop)/compare/loading.tsx` — already matches the CompareView pre-mount skeleton rhythm. No edits required.
+
+Stage Summary:
+- `npx tsc --noEmit` → 0 errors.
+- `bun run lint` → 0 errors, 0 warnings in my code (1 pre-existing warning in `src/app/signup/page.tsx` from React Hook Form + React Compiler — not from this task).
+- `curl /compare` → 200. `GET /compare 200 in 404ms` in dev.log. `curl /api/compare` → 401 (correct — user-scoped, requires auth).
+- `/home/z/my-project/dev.log` — no compile errors, no hydration warnings for any compare-related route or component.
+- All 5 spec items satisfied. Files modified: 2 (`compare-view.tsx`, `compare-bar.tsx`). Files verified unchanged: 7 (`compare/page.tsx`, `compare/loading.tsx`, `compare-store.ts`, `compare-sync.tsx`, `(shop)/layout.tsx`, `product-card.tsx`, `product-actions.tsx`, `use-auth.tsx`).
+- Design language preserved: monochrome only (no indigo/blue/purple), hairline borders, rounded-2xl cards, rounded-full buttons/pills, `tracking-luxe` eyebrow ("Side by side"), Framer Motion spring transitions, `useMounted()` gate on every persisted-store read, responsive table with horizontal scroll + sticky first column.
+- Full work record at `agent-ctx/C-compare-feature.md`.

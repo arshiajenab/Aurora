@@ -13,6 +13,8 @@ interface WishlistState {
   remove: (productId: number) => void;
   has: (productId: number) => boolean;
   clear: () => void;
+  /** Replace the entire list (used by auth sync after fetching from backend). */
+  setItems: (items: WishlistItem[]) => void;
 }
 
 export const useWishlistStore = create<WishlistState>()(
@@ -23,7 +25,7 @@ export const useWishlistStore = create<WishlistState>()(
       setHydrated: () => set({ hydrated: true }),
       toggle: (product) =>
         set((state) => {
-          const exists = state.items.some((i) => i.id === product.id);
+          const exists = (state.items ?? []).some((i) => i.id === product.id);
           if (exists) {
             return {
               items: state.items.filter((i) => i.id !== product.id),
@@ -41,10 +43,11 @@ export const useWishlistStore = create<WishlistState>()(
         }),
       remove: (productId) =>
         set((state) => ({
-          items: state.items.filter((i) => i.id !== productId),
+          items: (state.items ?? []).filter((i) => i.id !== productId),
         })),
-      has: (productId) => get().items.some((i) => i.id === productId),
+      has: (productId) => (get().items ?? []).some((i) => i.id === productId),
       clear: () => set({ items: [] }),
+      setItems: (items) => set({ items: items.slice(0, 50) }),
     }),
     {
       name: "aurora-wishlist",

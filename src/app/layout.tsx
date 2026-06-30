@@ -4,6 +4,7 @@ import "./globals.css";
 import { Toaster } from "@/components/ui/sonner";
 import { ThemeProvider } from "@/shared/providers/theme-provider";
 import { QueryProvider } from "@/shared/providers/query-provider";
+import { AuthProvider } from "@/features/auth/hooks/use-auth";
 import { SITE } from "@/lib/constants";
 
 const inter = Inter({
@@ -95,10 +96,12 @@ export default function RootLayout({
       >
         <ThemeProvider>
           <QueryProvider>
-            {/* min-h-screen flex flex-col guarantees the footer sticks to
-                the bottom on short pages and is pushed naturally on long ones. */}
-            <div className="flex min-h-screen flex-col">{children}</div>
-            <Toaster position="bottom-right" />
+            <AuthProvider>
+              {/* min-h-screen flex flex-col guarantees the footer sticks to
+                  the bottom on short pages and is pushed naturally on long ones. */}
+              <div className="flex min-h-screen flex-col">{children}</div>
+              <Toaster position="bottom-right" />
+            </AuthProvider>
           </QueryProvider>
         </ThemeProvider>
       </body>

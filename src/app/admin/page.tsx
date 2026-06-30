@@ -40,12 +40,14 @@ import { OrderStatusBadge } from "@/features/admin/components/order-status-badge
  */
 
 export default async function AdminDashboardPage() {
-  const [kpis, revenueSeries, recentOrders, inventory] = await Promise.all([
-    adminService.getKpis(),
-    adminService.getRevenueSeries(),
-    adminService.getRecentOrders(),
-    adminService.getInventory(),
-  ]);
+  const [kpis, revenueSeries, recentOrders, inventory, latestProducts] =
+    await Promise.all([
+      adminService.getKpis(),
+      adminService.getRevenueSeries(),
+      adminService.getRecentOrders(),
+      adminService.getInventory(),
+      adminService.getLatestProducts(5),
+    ]);
 
   // Inventory chart data — composed server-side, passed to the client chart.
   const inventoryData: InventoryDatum[] = [
@@ -304,6 +306,73 @@ export default async function AdminDashboardPage() {
           </Card>
         </Reveal>
       </div>
+
+      {/* Latest products */}
+      <Reveal delay={0.05}>
+        <Card className="rounded-2xl p-0">
+          <div className="flex items-center justify-between gap-4 border-b border-border/60 p-6 pb-4">
+            <div className="flex flex-col gap-1">
+              <h2 className="text-base font-semibold tracking-tight">
+                Latest products
+              </h2>
+              <p className="text-sm text-muted-foreground">
+                Most recently added items in the catalog.
+              </p>
+            </div>
+            <Button
+              asChild
+              variant="ghost"
+              size="sm"
+              className="gap-1.5 text-muted-foreground hover:text-foreground"
+            >
+              <Link href="/admin/products">
+                View all
+                <ArrowRight className="h-3.5 w-3.5" />
+              </Link>
+            </Button>
+          </div>
+          <ul className="divide-y divide-border/60">
+            {latestProducts.items.map((product) => (
+              <li key={product.id}>
+                <Link
+                  href={`/products/${product.id}`}
+                  className="flex items-center gap-4 px-6 py-4 transition-colors hover:bg-accent/40"
+                >
+                  <div className="relative h-10 w-10 shrink-0 overflow-hidden rounded-lg bg-muted">
+                    <Image
+                      src={product.thumbnail}
+                      alt=""
+                      fill
+                      sizes="40px"
+                      className="object-cover"
+                    />
+                  </div>
+                  <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                    <span className="line-clamp-1 text-sm font-medium tracking-tight">
+                      {product.title}
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      {timeAgo(product.meta.createdAt)}
+                    </span>
+                  </div>
+                  <span className="text-sm font-medium tabular-nums">
+                    {formatCurrency(product.price)}
+                  </span>
+                  <span
+                    className={
+                      product.status === "inactive"
+                        ? "inline-flex items-center gap-1.5 rounded-full bg-muted px-2.5 py-0.5 text-[11px] font-medium text-muted-foreground"
+                        : "inline-flex items-center gap-1.5 rounded-full bg-foreground/10 px-2.5 py-0.5 text-[11px] font-medium text-foreground"
+                    }
+                  >
+                    {product.status === "inactive" ? "Inactive" : "Active"}
+                  </span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      </Reveal>
 
       {/* Orders-by-status strip */}
       <Reveal delay={0.05}>

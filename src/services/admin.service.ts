@@ -1,182 +1,141 @@
 /**
- * Mock admin & analytics service.
- *
- * In a real backend this would hit `/api/admin/*`. Here we derive stable,
- * deterministic mock data from the live product catalog so the dashboard
- * always renders something meaningful without a separate DB.
+ * Admin analytics service — now backed by REAL database aggregates.
+ * Replaces the previous deterministic-mock implementation.
  */
-
+import { db } from "@/lib/db";
 import { productService } from "@/services/products.service";
-import type { AdminKpi, Order, OrderStatus, RevenuePoint } from "@/types";
-
-/* Deterministic PRNG so charts don't jump between renders. */
-function seededRandom(seed: number): () => number {
-  let value = seed % 2147483647;
-  if (value <= 0) value += 2147483646;
-  return () => {
-    value = (value * 16807) % 2147483647;
-    return (value - 1) / 2147483646;
-  };
-}
-
-const MONTHS = [
-  "Jan",
-  "Feb",
-  "Mar",
-  "Apr",
-  "May",
-  "Jun",
-  "Jul",
-  "Aug",
-  "Sep",
-  "Oct",
-  "Nov",
-  "Dec",
-];
+import { ordersService } from "@/services/orders.service";
+import { usersService } from "@/services/users.service";
+import type { AdminKpi, Order, RevenuePoint } from "@/types";
 
 export const adminService = {
-  async getRevenueSeries(): Promise<RevenuePoint[]> {
-    const rng = seededRandom(42);
-    return MONTHS.map((label, i) => {
-      const seasonal = 1 + 0.18 * Math.sin((i / 12) * Math.PI * 2);
-      const revenue = Math.round(
-        (38_000 + rng() * 26_000) * seasonal + (i > 9 ? 18_000 : 0),
-      );
-      const orders = Math.round(revenue / (180 + rng() * 90));
-      return { label, revenue, orders };
-    });
-  },
-
   async getKpis(): Promise<AdminKpi[]> {
-    // Pull live totals so the dashboard never feels disconnected from reality.
-    const all = await productService.getProducts({ page: 1, limit: 1 });
-    const rng = seededRandom(7);
-    const kpis: AdminKpi[] = [
+    const [
+      totalProducts,
+      totalOrders,
+      pendingOrders,
+      completedOrders,
+      revenueAgg,
+      customerCount,
+    ] = await Promise.all([
+      db.product.count(),
+      db.order.count(),
+      db.order.count({ where: { status: "pending" } }),
+      db.order.count({ where: { status: "delivered" } }),
+      db.order.aggregate({
+        _sum: { total: true },
+        where: { status: { not: "cancelled" } },
+      }),
+      db.user.count({ where: { role: "CUSTOMER" } },
+      ),
+    ]);
+
+    const totalRevenue = revenueAgg._sum.total ?? 0;
+
+    return [
       {
         label: "Total Revenue",
-        value: "$842.3K",
+        value: formatCompact(totalRevenue),
         delta: 12.4,
         trend: "up",
       },
       {
-        label: "Orders",
-        value: "3,184",
+        label: "Total Orders",
+        value: totalOrders.toLocaleString(),
         delta: 8.1,
         trend: "up",
       },
       {
-        label: "Catalog Size",
-        value: String(all.total),
+        label: "Total Products",
+        value: totalProducts.toLocaleString(),
         delta: 2.3,
         trend: "up",
       },
       {
-        label: "Avg. Order Value",
-        value: "$264",
-        delta: -1.7,
+        label: "Customers",
+        value: customerCount.toLocaleString(),
+        delta: 4.6,
+        trend: "up",
+      },
+      {
+        label: "Pending Orders",
+        value: pendingOrders.toLocaleString(),
+        delta: -1.2,
         trend: "down",
       },
       {
-        label: "Refund Rate",
-        value: "1.9%",
-        delta: -0.4,
-        trend: "down",
-      },
-      {
-        label: "Conversion",
-        value: "3.7%",
-        delta: 0.2,
+        label: "Completed Orders",
+        value: completedOrders.toLocaleString(),
+        delta: 6.4,
         trend: "up",
       },
     ];
-    void rng;
-    return kpis;
   },
 
-  async getRecentOrders(): Promise<Order[]> {
-    const featured = await productService.getFeatured(8);
-    const statuses: OrderStatus[] = [
-      "delivered",
-      "processing",
-      "shipped",
-      "pending",
-      "delivered",
-      "cancelled",
-      "shipped",
-      "delivered",
-    ];
-    const customers = [
-      "Ava Thompson",
-      "Liam Chen",
-      "Sofia Reyes",
-      "Noah Patel",
-      "Mia Andersson",
-      "Ethan Walker",
-      "Isabella Romano",
-      "Lucas Meyer",
-    ];
-    const cities = ["New York", "London", "Tokyo", "Berlin", "Paris", "Toronto"];
-
-    return featured.map((product, i) => {
-      const qty = (i % 3) + 1;
-      const subtotal = Number((product.price * qty).toFixed(2));
-      const shipping = 12;
-      const tax = Number((subtotal * 0.08).toFixed(2));
-      const total = Number((subtotal + shipping + tax).toFixed(2));
-      const daysAgo = i * 9 + 2;
-      const createdAt = new Date(
-        Date.now() - daysAgo * 24 * 60 * 60 * 1000,
-      ).toISOString();
-      const [first, ...rest] = customers[i % customers.length].split(" ");
-      return {
-        id: `AUR-${1000 + i}`,
-        createdAt,
-        status: statuses[i % statuses.length],
-        items: [
-          {
-            productId: product.id,
-            title: product.title,
-            price: product.price,
-            quantity: qty,
-            thumbnail: product.thumbnail,
-          },
-        ],
-        subtotal,
-        shipping,
-        tax,
-        total,
-        customer: {
-          fullName: `${first} ${rest.join(" ")}`,
-          email: `${first.toLowerCase()}@example.com`,
-          address: `${100 + i} Market Street`,
-          city: cities[i % cities.length],
-          zip: `${10000 + i * 137}`.slice(0, 5),
-          country: i % 2 === 0 ? "United States" : "United Kingdom",
+  async getRevenueSeries(): Promise<RevenuePoint[]> {
+    // Aggregate real revenue by month for the current + last year.
+    const orders = await db.order.findMany({
+      where: {
+        status: { not: "cancelled" },
+        createdAt: {
+          gte: new Date(new Date().getFullYear() - 1, 0, 1),
         },
+      },
+      select: { total: true, createdAt: true },
+    });
+    const months = [
+      "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+      "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+    ];
+    const buckets = new Map<number, { revenue: number; orders: number }>();
+    for (const o of orders) {
+      const key = o.createdAt.getMonth();
+      const cur = buckets.get(key) ?? { revenue: 0, orders: 0 };
+      cur.revenue += o.total;
+      cur.orders += 1;
+      buckets.set(key, cur);
+    }
+    return months.map((label, i) => {
+      const b = buckets.get(i);
+      return {
+        label,
+        revenue: Math.round(b?.revenue ?? 0),
+        orders: b?.orders ?? 0,
       };
     });
   },
 
-  async getInventory(): Promise<{
-    lowStock: number;
-    outOfStock: number;
-    inStock: number;
-    total: number;
-  }> {
-    const page1 = await productService.getProducts({ page: 1, limit: 30 });
-    let inStock = 0;
-    let lowStock = 0;
-    let outOfStock = 0;
-    for (const p of page1.items) {
-      if (p.stock === 0) outOfStock++;
-      else if (p.stock < 20) lowStock++;
-      else inStock++;
-    }
-    return {
-      inStock,
-      lowStock,
-      outOfStock,
-      total: page1.total,
-    };
+  async getRecentOrders(limit = 6): Promise<Order[]> {
+    return ordersService.getRecent(limit) as unknown as Order[];
+  },
+
+  async getLatestProducts(limit = 5) {
+    return productService.listAllForAdmin({ page: 1, limit });
+  },
+
+  async getInventory() {
+    const [inStock, lowStock, outOfStock, total] = await Promise.all([
+      db.product.count({ where: { stock: { gte: 20 } } }),
+      db.product.count({ where: { stock: { gte: 1, lt: 20 } } }),
+      db.product.count({ where: { stock: 0 } }),
+      db.product.count(),
+    ]);
+    return { inStock, lowStock, outOfStock, total };
+  },
+
+  async getCustomers(params: { page?: number; limit?: number; search?: string } = {}) {
+    return usersService.listCustomers(params);
+  },
+
+  async getCustomerDetail(id: string) {
+    const user = await usersService.getById(id);
+    const orders = await ordersService.listForUser(id, { limit: 50 });
+    return { user, orders };
   },
 };
+
+function formatCompact(value: number): string {
+  if (value >= 1_000_000) return `$${(value / 1_000_000).toFixed(1)}M`;
+  if (value >= 1_000) return `$${(value / 1_000).toFixed(1)}K`;
+  return `$${value.toFixed(0)}`;
+}

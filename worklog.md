@@ -213,3 +213,111 @@ Work Log:
 Stage Summary:
 - Every core flow is browser-verified and interactive. No runtime errors, no hydration warnings, no broken interactions.
 - The site is production-ready and meets the "browser-verified interactivity" standard of done.
+
+---
+Task ID: 11
+Agent: Senior Staff Engineer (main)
+Task: Full backend — Prisma schema, seed, JWT auth, services, API routes (foundation for extension)
+
+Work Log:
+- Installed `jose` (Edge JWT) + `bcryptjs` (password hashing).
+- Wrote full Prisma schema (`prisma/schema.prisma`): User, Product (Int id, preserves storefront contract), Category, Order (+number, status, shippingMethod, paymentMethod, couponCode, addresses JSON), OrderItem, Address, WishlistItem, CompareItem, Coupon, RefreshToken. SQLite-compatible (arrays as JSON strings, enums as validated strings).
+- `bun run db:push` succeeded. Wrote `scripts/seed.ts` pulling 194 products + 24 categories from DummyJSON + 3 demo coupons into the DB. Ran it.
+- Auth core: `lib/password.ts` (bcrypt), `lib/jwt.ts` (access 15min + opaque refresh via jose), `lib/auth-constants.ts` (edge-safe cookie names), `lib/rate-limit.ts` (in-memory token bucket + IP extraction), `lib/session.ts` (getSession/getSessionOrRefresh/requireSession/setSessionCookies/clearSessionCookies), `src/middleware.ts` (protects /checkout + /account/* only; admin open; redirects to /signin?callbackUrl=).
+- Refactored `services/products.service.ts` to be DB-backed with IDENTICAL public interface (storefront pages unchanged). Added admin CRUD: listAllForAdmin, createProduct, updateProduct, deleteProduct.
+- New services: `auth.service.ts` (signup/signin), `orders.service.ts` (createOrder with stock guard + coupon + stock decrement in tx, listForUser/Admin, updateStatus with restock-on-cancel, getRecent), `users.service.ts` (profile/changePassword/deleteAccount/listCustomers with totalSpent), `addresses.service.ts` (CRUD + setDefault with first-address-auto-default), `wishlist.service.ts` (listIds/add/remove/replace), `compare.service.ts` (MAX_COMPARE=4, same pattern), `coupons.service.ts` (validate with expiry/usage/minSubtotal), `admin.service.ts` refactored to REAL DB aggregates (getKpis/getRevenueSeries/getRecentOrders/getLatestProducts/getInventory/getCustomers/getCustomerDetail).
+- Updated `lib/validations.ts` with full Zod schemas: productQuery, adminProductQuery, createProduct, updateProduct, signUp, signIn, changePassword, checkout (with shippingAddress/billingAddress/shippingMethod/paymentMethod/couponCode), orderStatus, address, updateProfile, couponValidate.
+- API routes: auth (signup/signin/refresh/logout/me with rate limiting), products (GET list + POST create), products/[id] (GET/PUT/DELETE), orders (POST create + GET list), orders/[id] (GET), orders/[id]/status (PATCH), admin/orders (GET), admin/products (GET), admin/stats (GET real aggregates), admin/customers (GET list), admin/customers/[id] (GET detail), users/me (GET/PATCH/PUT password/DELETE account), addresses (GET/POST), addresses/[id] (PATCH/DELETE), addresses/[id]/default (POST), wishlist (GET/PUT replace), wishlist/[productId] (POST/DELETE), compare (GET/PUT), compare/[productId] (POST/DELETE), coupons/validate (POST), upload (POST multipart → public/uploads/<kind>), checkout (legacy alias → orders). categories updated to DB.
+- Created `features/compare/store/compare-store.ts` (Zustand persisted, MAX_COMPARE=4, toggle/add/remove/clear/setIds).
+- Created `features/auth/hooks/use-auth.tsx` (AuthProvider + useAuth): auto-login via /api/auth/me on mount, signIn/signUp/signOut, triggers wishlist+compare DB sync on guest→auth transition.
+- Wired AuthProvider into root layout.
+- Updated `lib/constants.ts` NAV_LINKS: removed "New", added "Compare". 
+- Updated `shared/components/site-header.tsx`: added Compare button (with badge), Account dropdown menu (avatar + Dashboard/Orders/Profile/Sign out) when authenticated, "Sign in" button when not.
+- Silenced noisy Prisma query logging (error/warn only).
+
+Stage Summary:
+- Full backend is live and DB-backed. `npx tsc --noEmit` clean, `bun run lint` clean (0 errors).
+- Storefront unchanged interface; reads now come from local DB (seeded from DummyJSON — the "free public API" data source).
+- Auth: JWT access (15min, httpOnly cookie) + rotating opaque refresh (30d, DB-backed, revocable). Middleware protects /checkout + /account only.
+- Demo coupons seeded: WELCOME10 (10%), AURORA20 (20% over $200), FREESHIP ($12 off).
+- All API routes return correct HTTP status; /api/auth/me returns 200 (auto-login works).
+
+Key contracts for downstream UI agents:
+- `useAuth()` from `@/features/auth/hooks/use-auth` → { user, loading, signIn, signUp, signOut, refresh }. user is `PublicUser | null`.
+- `useCompareStore` from `@/features/compare/store/compare-store` → { ids, toggle(product), add(id), remove(id), clear(), has(id), setIds(ids) }, MAX_COMPARE=4, selectCompareCount.
+- API: POST /api/auth/signin {email,password}→{user}; POST /api/auth/signup {name,email,password}→{user}; POST /api/auth/logout; GET /api/auth/me→{user|null}.
+- API: GET /api/orders?page&limit&status; GET /api/orders/[id]; POST /api/orders (checkoutSchema); POST /api/admin/orders/[id]/status {status}.
+- API: GET/POST /api/addresses; PATCH/DELETE /api/addresses/[id]; POST /api/addresses/[id]/default.
+- API: GET/PATCH/PUT(password)/DELETE(account) /api/users/me.
+- API: GET /api/wishlist→{ids}; PUT /api/wishlist {ids}; POST/DELETE /api/wishlist/[productId].
+- API: GET /api/compare→{ids,max}; PUT /api/compare {ids}; POST/DELETE /api/compare/[productId].
+- API: POST /api/coupons/validate {code,subtotal}→{coupon:{code,type,value,discount,minSubtotal}}.
+- API: GET /api/admin/stats→{kpis,revenue,recentOrders,inventory,latestProducts}; GET /api/admin/customers?page&limit&q; GET /api/admin/customers/[id].
+- API: POST /api/upload (multipart "files", ?kind=products|avatars)→{urls}. Saves to public/uploads/<kind>/.
+- API: POST /api/products (createProductSchema)→Product; PUT /api/products/[id] (updateProductSchema); DELETE /api/products/[id]; GET /api/admin/products?page&limit&q&category&status.
+- Services are also importable directly in Server Components: productService, ordersService, usersService, addressesService, wishlistService, compareService, couponsService, adminService.
+- Session helpers (server): getSession(), getSessionOrRefresh(), requireSession() from `@/lib/session`. requireSession returns {ok:true,user} | {ok:false,response}.
+
+---
+Task ID: C
+Agent: Compare Feature Engineer
+Task: Product compare feature — compare page, floating bar, ProductCard + ProductActions toggles, DB sync verification
+
+Work Log:
+- Read worklog (Task 11 confirmed backend DONE: `/api/compare` + `compareService` + `compare-store` + `use-auth.tsx` guest→auth sync + `CompareSync` ongoing PUT). All 5 task items were already scaffolded; verified each and applied minimal-touch refinements to align with the explicit spec.
+- `src/features/compare/components/compare-view.tsx` — switched EmptyState icon from `GitCompare` → `Scale` (spec says Scale; matches the icon used on ProductCard/ProductActions for consistency). Changed alternate-row background from `bg-muted/50` → `bg-muted/40` per spec (both the sticky label `<th>` and the data `<td>`). All other logic left untouched: parallel `Promise.all(ids.map(id => fetch('/api/products/'+id).then(r=>r.json())))`, hydration-safe `useMounted()` gate, sticky first column `z-10 bg-background`, 18 attribute rows (Image+title+remove in header; Price, Discount, Rating, Stock, Brand, Category, SKU, Weight, Dimensions, Warranty, Shipping, Availability, Return policy, Min. order qty, Tags, Description in body), Add-to-bag footer row, loading skeleton, header (eyebrow + "Compare N of 4" + "Clear all").
+- `src/features/compare/components/compare-bar.tsx` — shrunk thumbnails from `h-9 w-9` (36px) → `h-8 w-8` (32px) per spec; aligned `next/image sizes="36px"` → `sizes="32px"` and the dashed empty-slot circles to `h-8 w-8`. Switched the "Clear" button icon from `Trash2` → `X` per spec ("Clear" X); removed the now-unused `Trash2` import. Existing behaviour preserved: AnimatePresence slide-up from bottom, glass + rounded-full + shadow, `useMounted()` gate, visible at `count >= 1`, "Compare now" disabled if `<2`, hidden SR link to `/compare`, safe-area inset bottom padding, lazy thumbnail cache via `fetchedRef` Set.
+- `src/features/products/components/product-card.tsx` — verified already-compliant: Scale icon button placed under the wishlist Heart in the top-right cluster; `toggleCompare(product)`; fills (`fill-foreground text-foreground`) when active; `disabled={compareDisabled}` + `cursor-not-allowed opacity-50` + `Tooltip` "Compare list full" when `ids.length >= MAX_COMPARE && !ids.includes(product.id)`; toast on add/remove; `useMounted()` gate; existing wishlist/quick-add/hover untouched.
+- `src/features/products/components/product-actions.tsx` — verified already-compliant: outline `variant="outline"` "Compare" button next to Add to bag + Wishlist; Scale icon (fills when active); `disabled={compareDisabled}` + `title="Compare list full"`; toast on toggle; `useMounted()` gate.
+- DB sync verified in `src/features/auth/hooks/use-auth.tsx` (lines 52–109): on guest→auth transition (`prevUserId.current !== user.id`), reads `aurora-wishlist` + `aurora-compare` from `localStorage`, parses IDs, `PUT /api/wishlist` + `PUT /api/compare` in parallel, then `GET /api/wishlist` + `GET /api/compare` and rehydrates `localStorage`. `src/features/compare/components/compare-sync.tsx` handles the ongoing PUT on `ids` change when authed (skip-first-emit pattern so it doesn't duplicate the auth transition's PUT). No edits required.
+- `src/app/(shop)/layout.tsx` — already wires `<CompareBar />` + `<CompareSync />` after `<SiteFooter />` (both are fixed/no-UI so no layout impact). No edits required.
+- `src/app/(shop)/compare/page.tsx` — server shell, exports `metadata = { title: "Compare", robots: { index: false, follow: false } }`, renders `<CompareView />`. No edits required. (Spec wrote `src/app/compare/page.tsx`; the existing `(shop)` route group renders at URL `/compare` — route groups don't affect the URL — so this is the correct location and matches the established storefront pattern.)
+- `src/app/(shop)/compare/loading.tsx` — already matches the CompareView pre-mount skeleton rhythm. No edits required.
+
+Stage Summary:
+- `npx tsc --noEmit` → 0 errors.
+- `bun run lint` → 0 errors, 0 warnings in my code (1 pre-existing warning in `src/app/signup/page.tsx` from React Hook Form + React Compiler — not from this task).
+- `curl /compare` → 200. `GET /compare 200 in 404ms` in dev.log. `curl /api/compare` → 401 (correct — user-scoped, requires auth).
+- `/home/z/my-project/dev.log` — no compile errors, no hydration warnings for any compare-related route or component.
+- All 5 spec items satisfied. Files modified: 2 (`compare-view.tsx`, `compare-bar.tsx`). Files verified unchanged: 7 (`compare/page.tsx`, `compare/loading.tsx`, `compare-store.ts`, `compare-sync.tsx`, `(shop)/layout.tsx`, `product-card.tsx`, `product-actions.tsx`, `use-auth.tsx`).
+- Design language preserved: monochrome only (no indigo/blue/purple), hairline borders, rounded-2xl cards, rounded-full buttons/pills, `tracking-luxe` eyebrow ("Side by side"), Framer Motion spring transitions, `useMounted()` gate on every persisted-store read, responsive table with horizontal scroll + sticky first column.
+- Full work record at `agent-ctx/C-compare-feature.md`.
+
+---
+Task ID: 12
+Agent: Senior Staff Engineer (main)
+Task: Extended e-commerce features — admin CRUD, account pages, compare, auth UI, enhanced checkout
+
+Work Log:
+- Read existing state: backend (Task 11) fully built (DB, JWT, services, API routes). Compare feature (Task C) verified. Signin/signup pages exist. Checkout enhanced (48 matches). Account dashboard/profile/orders exist.
+- Fixed 2 Zod v4 TS errors in validations.ts (`z.record(z.unknown())` → `z.record(z.string(), z.unknown())`).
+- Built 3 missing account pages:
+  • `src/app/account/wishlist/page.tsx` — client; reads persisted wishlist store, resolves full products, "Move to bag" + remove + clear, empty state, skeletons.
+  • `src/app/account/addresses/page.tsx` — client; full CRUD via dialog form (RHF+Zod), AlertDialog delete confirm, set-default, fixed API response shape `{addresses: [...]}`.
+  • `src/app/account/settings/page.tsx` — client; change password (RHF+Zod with strength rules), delete account (AlertDialog + password confirm), logout.
+- Added `featured` + `status` fields to `Product` type + `mapProduct` so admin can display/filter by status.
+- Built full admin product CRUD:
+  • `src/features/admin/components/image-uploader.tsx` — reusable, single/multi mode, POST /api/upload, URL fallback.
+  • `src/features/admin/components/product-form-dialog.tsx` — RHF+Zod create/edit dialog with all fields (title, desc, category, price, discount, stock, brand, sku, tags, images, specs, featured toggle, status).
+  • `src/features/admin/components/products-admin-table.tsx` — client island with toolbar (search/category/status/sort, URL-driven) + table + Create/Edit/Delete with AlertDialog confirm + router.refresh().
+  • Rewrote `src/app/admin/products/page.tsx` — server component using `listAllForAdmin`.
+- Built admin order management:
+  • `src/features/admin/components/order-detail-dialog.tsx` — full detail (items, addresses, totals, coupon, status timeline) + status update buttons (processing/shipped/delivered) + cancel with AlertDialog.
+  • `src/features/admin/components/orders-admin-table.tsx` — client island with status filter tabs + debounced search (URL-driven) + row-click detail dialog.
+  • Rewrote `src/app/admin/orders/page.tsx` — real data via `listForAdmin` (was mock 8 orders).
+- Built admin customers page:
+  • `src/app/admin/customers/page.tsx` — server component, real customers with order stats.
+  • `src/features/admin/components/customer-detail-dialog.tsx` — profile + order history + stats.
+  • `src/features/admin/components/customers-toolbar.tsx` — debounced search.
+  • Added "Customers" to admin sidebar nav.
+- Added "Latest products" section to admin dashboard (`getLatestProducts`).
+- Created reusable `src/features/admin/components/admin-pagination.tsx`.
+- Fixed wishlist store corruption: auth sync was writing directly to localStorage (desyncing zustand). Added `setItems` method to wishlist store + `setIds` to compare; updated `use-auth.tsx` to use store setters via dynamic import. Added `Array.isArray` defensive guards in product-actions + product-card selectors.
+- Fixed checkout redirect race: `clearCart()` during order submission triggered the empty-cart redirect to /cart before `/order-success`. Added `orderPlaced` ref to suppress the empty-cart effect during submission.
+
+Stage Summary:
+- E2E browser-verified: admin product CREATE (product appears in table + DB), admin order status UPDATE (Pending→Shipped, table refreshes), checkout end-to-end (form → /order-success), auth gate (/checkout → /signin?callbackUrl=/checkout), account dashboard/orders/wishlist/addresses/settings all render.
+- 0 TS errors, 0 ESLint errors (1 pre-existing React Compiler warning).
+- All 14 routes return correct HTTP status.
+- Nav: "New" removed, "Compare" added (done in Task 11).
+- Full feature set from spec: admin CRUD, order management, customers, JWT auth (browse-free, checkout-gated), user dashboard (dashboard/profile/orders/wishlist/addresses/settings), compare (page + floating bar + toggles + DB sync), enhanced checkout (shipping/billing/coupon/shipping method/payment method).

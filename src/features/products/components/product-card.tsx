@@ -4,16 +4,26 @@ import * as React from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { motion } from "framer-motion";
-import { Heart, Plus, Star } from "lucide-react";
+import { Heart, Plus, Star, Scale } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatCurrency } from "@/lib/format";
 import type { Product } from "@/types";
 import { useWishlistStore } from "@/features/wishlist/store/wishlist-store";
+import {
+  useCompareStore,
+  MAX_COMPARE,
+} from "@/features/compare/store/compare-store";
 import { useCartStore } from "@/features/cart/store/cart-store";
 import { useMounted } from "@/shared/hooks/use-mounted";
 import { toast } from "sonner";
 import { titleCaseSlug } from "@/lib/format";
 import { Button } from "@/components/ui/button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 /**
  * ProductCard — the workhorse of the catalog.
@@ -23,8 +33,8 @@ import { Button } from "@/components/ui/button";
  *  - next/image with a blurred data-URL placeholder would require runtime
  *    access to the image bytes; instead we use a neutral shimmer backdrop
  *    via the container, which is good enough and avoids extra network hops.
- *  - Wishlist + quick-add are client-only and gated on `mounted` to avoid
- *    hydration mismatches with persisted state.
+ *  - Wishlist + compare + quick-add are client-only and gated on `mounted`
+ *    to avoid hydration mismatches with persisted state.
  */
 export function ProductCard({
   product,
@@ -38,9 +48,14 @@ export function ProductCard({
   const mounted = useMounted();
   const toggleWishlist = useWishlistStore((s) => s.toggle);
   const addItem = useCartStore((s) => s.addItem);
-  // Read wishlist inline without subscribing to the whole store.
+  const toggleCompare = useCompareStore((s) => s.toggle);
+  // Read wishlist + compare inline without subscribing to the whole store.
   const inWishlist = useWishlistStore((s) =>
-    s.items.some((i) => i.id === product.id),
+    Array.isArray(s.items) ? s.items.some((i) => i.id === product.id) : false,
+  );
+  const inCompare = useCompareStore((s) => s.ids.includes(product.id));
+  const compareFull = useCompareStore(
+    (s) => s.ids.length >= MAX_COMPARE && !s.ids.includes(product.id),
   );
 
   const discount = product.discountPercentage > 0;
@@ -71,6 +86,25 @@ export function ProductCard({
     },
     [toggleWishlist, product, inWishlist],
   );
+
+  const handleCompare = React.useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (compareFull) return;
+      const willAdd = !inCompare;
+      toggleCompare(product);
+      toast.success(
+        willAdd ? "Added to compare" : "Removed from compare",
+        { description: product.title },
+      );
+    },
+    [toggleCompare, product, inCompare, compareFull],
+  );
+
+  // Stable label/state derived from mounted+store so SSR markup matches.
+  const compareActive = mounted && inCompare;
+  const compareDisabled = mounted && compareFull;
 
   return (
     <motion.div
@@ -111,27 +145,62 @@ export function ProductCard({
             )}
           </div>
 
-          {/* Wishlist button — top right */}
-          <button
-            type="button"
-            onClick={handleWishlist}
-            aria-pressed={mounted ? inWishlist : false}
-            aria-label={
-              mounted && inWishlist
-                ? `Remove ${product.title} from wishlist`
-                : `Add ${product.title} to wishlist`
-            }
-            className="absolute right-3 top-3 inline-flex h-9 w-9 items-center justify-center rounded-full bg-background/70 text-foreground backdrop-blur-md transition-all duration-200 hover:bg-background hover:shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
-          >
-            <Heart
-              className={cn(
-                "h-4 w-4 transition-all",
+          {/* Top-right actions — wishlist + compare */}
+          <div className="absolute right-3 top-3 flex flex-col items-end gap-1.5">
+            <button
+              type="button"
+              onClick={handleWishlist}
+              aria-pressed={mounted ? inWishlist : false}
+              aria-label={
                 mounted && inWishlist
-                  ? "fill-foreground text-foreground"
-                  : "text-foreground",
-              )}
-            />
-          </button>
+                  ? `Remove ${product.title} from wishlist`
+                  : `Add ${product.title} to wishlist`
+              }
+              className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-background/70 text-foreground backdrop-blur-md transition-all duration-200 hover:bg-background hover:shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+            >
+              <Heart
+                className={cn(
+                  "h-4 w-4 transition-all",
+                  mounted && inWishlist
+                    ? "fill-foreground text-foreground"
+                    : "text-foreground",
+                )}
+              />
+            </button>
+            <TooltipProvider delayDuration={300}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={handleCompare}
+                    disabled={compareDisabled}
+                    aria-pressed={compareActive}
+                    aria-label={
+                      compareActive
+                        ? `Remove ${product.title} from compare`
+                        : `Add ${product.title} to compare`
+                    }
+                    className={cn(
+                      "inline-flex h-9 w-9 items-center justify-center rounded-full bg-background/70 text-foreground backdrop-blur-md transition-all duration-200 hover:bg-background hover:shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
+                      compareDisabled && "cursor-not-allowed opacity-50",
+                    )}
+                  >
+                    <Scale
+                      className={cn(
+                        "h-4 w-4 transition-all",
+                        compareActive && "fill-foreground text-foreground",
+                      )}
+                    />
+                  </button>
+                </TooltipTrigger>
+                {compareDisabled && (
+                  <TooltipContent side="left">
+                    Compare list full
+                  </TooltipContent>
+                )}
+              </Tooltip>
+            </TooltipProvider>
+          </div>
 
           {/* Quick add — slides up on hover (desktop) / always visible (touch) */}
           <div className="absolute inset-x-3 bottom-3 translate-y-2 opacity-0 transition-all duration-300 group-hover:translate-y-0 group-hover:opacity-100 max-sm:translate-y-0 max-sm:opacity-100">

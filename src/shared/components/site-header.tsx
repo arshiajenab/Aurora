@@ -4,7 +4,7 @@ import * as React from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
-import { Menu, Search, ShoppingBag, Heart, X } from "lucide-react";
+import { Menu, Search, ShoppingBag, Heart, X, User, LogOut, LayoutDashboard, Scale, Package } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Sheet,
@@ -12,6 +12,15 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
 import { NAV_LINKS, SITE } from "@/lib/constants";
 import { Logo } from "@/shared/components/logo";
@@ -19,7 +28,10 @@ import { ThemeToggle } from "@/shared/components/theme-toggle";
 import { CartSheet } from "@/features/cart/components/cart-sheet";
 import { useCartStore, selectCartCount } from "@/features/cart/store/cart-store";
 import { useWishlistStore, selectWishlistCount } from "@/features/wishlist/store/wishlist-store";
+import { useCompareStore, selectCompareCount } from "@/features/compare/store/compare-store";
+import { useAuth } from "@/features/auth/hooks/use-auth";
 import { useMounted } from "@/shared/hooks/use-mounted";
+import { toast } from "sonner";
 
 /**
  * SiteHeader — sticky, glassy, premium.
@@ -40,6 +52,8 @@ export function SiteHeader() {
 
   const cartCount = useCartStore(selectCartCount);
   const wishlistCount = useWishlistStore(selectWishlistCount);
+  const compareCount = useCompareStore(selectCompareCount);
+  const { user, signOut } = useAuth();
 
   React.useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 8);
@@ -130,6 +144,23 @@ export function SiteHeader() {
             <Button
               variant="ghost"
               size="icon"
+              aria-label="Compare products"
+              className="relative h-9 w-9 rounded-full"
+              asChild
+            >
+              <Link href="/compare">
+                <Scale className="h-[1.05rem] w-[1.05rem]" />
+                {mounted && compareCount > 0 && (
+                  <span className="absolute -right-0.5 -top-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-foreground px-1 text-[10px] font-semibold text-background tabular-nums">
+                    {compareCount}
+                  </span>
+                )}
+              </Link>
+            </Button>
+
+            <Button
+              variant="ghost"
+              size="icon"
               aria-label="Wishlist"
               className="relative h-9 w-9 rounded-full"
               asChild
@@ -162,6 +193,74 @@ export function SiteHeader() {
             <div className="ml-1 hidden sm:block">
               <ThemeToggle />
             </div>
+
+            {/* Account menu */}
+            {mounted && user ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-9 w-9 rounded-full"
+                    aria-label="Account menu"
+                  >
+                    <Avatar className="h-7 w-7">
+                      <AvatarImage src={user.avatar ?? undefined} alt={user.name ?? ""} />
+                      <AvatarFallback className="text-[10px]">
+                        {(user.name ?? user.email).slice(0, 2).toUpperCase()}
+                      </AvatarFallback>
+                    </Avatar>
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-52">
+                  <DropdownMenuLabel className="font-normal">
+                    <div className="flex flex-col gap-0.5">
+                      <span className="text-sm font-medium leading-none">{user.name ?? "Account"}</span>
+                      <span className="text-xs leading-none text-muted-foreground">{user.email}</span>
+                    </div>
+                  </DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem asChild>
+                    <Link href="/account" className="gap-2">
+                      <LayoutDashboard className="h-4 w-4" /> Dashboard
+                    </Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem asChild>
+                    <Link href="/account/orders" className="gap-2">
+                      <Package className="h-4 w-4" /> My Orders
+                    </Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem asChild>
+                    <Link href="/account/profile" className="gap-2">
+                      <User className="h-4 w-4" /> Profile
+                    </Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    className="gap-2 text-muted-foreground"
+                    onClick={async () => {
+                      await signOut();
+                      toast.success("Signed out");
+                      router.push("/");
+                    }}
+                  >
+                    <LogOut className="h-4 w-4" /> Sign out
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : (
+              <Button
+                asChild
+                variant="ghost"
+                size="sm"
+                className="gap-1.5 rounded-full"
+              >
+                <Link href="/signin">
+                  <User className="h-4 w-4" />
+                  <span className="hidden sm:inline">Sign in</span>
+                </Link>
+              </Button>
+            )}
           </div>
         </div>
 
